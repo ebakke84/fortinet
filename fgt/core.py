@@ -1292,3 +1292,41 @@ def diagnose_old(opts: RunOptions, pw: str, lan: dict, ev: Events) -> None:
 
 def open_url(url: str) -> None:
     subprocess.run(["open", url])
+
+
+def summary_rows(ctx: dict) -> list[tuple[str, str] | None]:
+    """Oppsummeringen som (etikett, verdi)-rader. None = mellomrom mellom grupper."""
+    lan = ctx["lan"]
+    tls = ", ".join("TLS " + v.replace("tlsv", "").replace("-", ".") for v in ctx["admin_tls"].split())
+    rows: list = [("Hostname", ctx["hostname"]), ("Tidssone", ctx["timezone"]),
+                  ("Admin-timeout", f"{ctx['admin_timeout']} min"),
+                  ("Admin HTTPS", f"port {ctx['admin_https_port']}  ({tls})"), None,
+                  ("LAN", f"{lan['iface']}  {lan['cidr']}")]
+    if lan["dhcp_enabled"]:
+        rows += [("DHCP", f"{lan['dhcp_start']} – {lan['dhcp_end']}  (lease {lan['lease_time'] // 3600} t)"),
+                 ("DNS", ", ".join(lan["dns"]))]
+    else:
+        rows.append(("DHCP", "av"))
+    rows += [None, ("WAN-modus", "SD-WAN" if ctx["wan_mode"] == "sdwan" else "én WAN")]
+    for i, w in enumerate(ctx["wans"], 1):
+        addr = f"{w['ip']}/{a_prefix(w)}  gw {w['gateway']}" if w["mode"] == "static" else "DHCP"
+        name = f"  «{w['alias']}»" if w["alias"] else ""
+        rows.append((f"WAN{i}", f"{w['port']}{name}  {addr}"))
+    th = [f"{t.split()[0]}/{a_prefix({'mask': t.split()[1]})}" for t in ctx["final_trusthosts"]]
+    rows += [None, ("Trusted hosts", ", ".join(th) or "(ingen)"),
+             ("SNMPv3", ", ".join(u["name"] for u in ctx["snmp"]["users"]) or "(ingen)")]
+    return rows
+
+
+def summary_notes(ctx: dict) -> list[str]:
+    notes = []
+    if ctx["delete_hc"]:
+        notes.append(f"Fjerner {len(ctx['delete_hc'])} default SD-WAN-helsesjekker (Default_*)")
+    for desc in ctx["replace_policies_desc"]:
+        notes.append(f"Default-policy {desc} erstattes av «{ctx['policy']['name']}»")
+    if ctx["policy"]["exists"]:
+        notes.append(f"Policy «{ctx['policy']['name']}» finnes fra før og beholdes")
+    if ctx["lan"]["same_iface"]:
+        notes.append(f"Mac-en får midlertidig {ctx['lan']['alias_ip']} for å nå nytt LAN "
+                     "(macOS spør om Mac-passordet ditt)")
+    return notes

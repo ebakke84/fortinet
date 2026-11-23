@@ -16,6 +16,23 @@ og rediger standardverdier.
 
 Større tekst i Terminal: **Cmd +** (tilbake: **Cmd 0**).
 
+## Mac-appen
+
+Samme oppsett i et vanlig Mac-vindu: koble til → fyll ut skjema → se oppsummering → konfigurer.
+Portene velges fra lister med det boksen faktisk har, og feil markeres i rødt mens du fyller ut.
+
+- **Prøve fra kildekoden:** menyvalg **6** (installerer PySide6 første gang), eller `python3 app.py`.
+- **Bygge `FortiGate Setup.app`:** menyvalg **7**, eller `./build_app.sh`. Appen havner i `dist/`,
+  og scriptet tilbyr å kopiere den til Programmer. Første gang: høyreklikk → Åpne.
+- **Innstillinger:** *Fil → Innstillinger* (⌘,) redigerer `site_defaults.yaml` og SNMP-passordene,
+  og sjekker at fila er gyldig før den lagres.
+- **Datamappe:** fra kildekoden brukes prosjektmappa (som Terminal-versjonen). Den bygde appen bruker
+  `~/Library/Application Support/FortiGate Setup`. *Fil → Velg datamappe* peker den et annet sted,
+  f.eks. til prosjektmappa, så app og Terminal deler innstillinger og output.
+- **Prøvekjøring uten boks:** *Åpne lagret boks-data …* og velg f.eks. `tests/fixtures/61F`
+  eller `raw/`-mappa fra en tidligere kjøring.
+- Når Mac-en trenger midlertidig IP i nytt LAN, viser macOS sin vanlige passorddialog.
+
 ## Hente og oppdatere med Git
 
 ```bash
@@ -98,7 +115,11 @@ Kjør det første gang mot en lab-boks og sjekk spesielt:
 
 | Fil | Innhold |
 |---|---|
-| `setup.py` | selve scriptet |
+| `setup.py` | Terminal-versjonen |
+| `app.py` | Mac-appen (PySide6) |
+| `fgt/core.py` | felles logikk for begge: lesing, validering, maler, utførelse |
+| `build_app.sh` | bygger `FortiGate Setup.app` med PyInstaller |
+| `tests/test_core.py` | tester (`python3 -m pytest -q`) |
 | `site_defaults.example.yaml` | mal for faste innstillinger (kopieres til `site_defaults.yaml`) |
 | `secrets.env.example` | mal for SNMP-passord (kopieres til `secrets.env`) |
 | `FortiGate Setup.command` | meny, start med dobbeltklikk |
