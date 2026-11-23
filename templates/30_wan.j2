@@ -1,0 +1,101 @@
+{# 1) Frigjør porter som sitter i en virtual-switch, og fjern DHCP-server på dem #}
+{% for w in wans if w.release_from %}
+config system virtual-switch
+    edit "{{ w.release_from }}"
+        config port
+            delete "{{ w.port }}"
+        end
+    next
+end
+{% endfor %}
+{% for w in wans if w.dhcp_delete %}
+config system dhcp server
+{% for id in w.dhcp_delete %}
+    delete {{ id }}
+{% endfor %}
+end
+{% endfor %}
+{# Default-policy LAN -> WAN slettes, ellers kan ikke porten bli SD-WAN-medlem #}
+{% if replace_policies %}
+config firewall policy
+{% for id in replace_policies %}
+    delete {{ id }}
+{% endfor %}
+end
+{% endif %}
+{# Default-helsesjekkene fra fabrikk (Default_DNS, Default_Office_365 ...) brukes ikke #}
+{% if delete_hc %}
+config system sdwan
+    config health-check
+{% for h in delete_hc %}
+        delete "{{ h }}"
+{% endfor %}
+    end
+end
+{% endif %}
+{# 2) WAN-interfaces #}
+config system interface
+{% for w in wans %}
+    edit "{{ w.port }}"
+        set role wan
+{% if w.alias %}
+        set alias "{{ w.alias }}"
+{% endif %}
+{% if w.mode == 'static' %}
+        set mode static
+        set ip {{ w.ip }} {{ w.mask }}
+{% else %}
+        set mode dhcp
+{% endif %}
+        set allowaccess {{ wan_allowaccess }}
+    next
+{% endfor %}
+end
+{% if wan_mode == 'sdwan' %}
+{# 3a) SD-WAN med to medlemmer i standardsonen virtual-wan-link #}
+config system sdwan
+    set status enable
+    config members
+{% for w in wans %}
+        edit {{ loop.index }}
+            set interface "{{ w.port }}"
+            set zone "virtual-wan-link"
+{% if w.mode == 'static' %}
+            set gateway {{ w.gateway }}
+{% endif %}
+        next
+{% endfor %}
+    end
+    config health-check
+        edit "{{ hc.name }}"
+            set server{% for s in hc.servers %} "{{ s }}"{% endfor %}
+
+            set protocol {{ hc.protocol }}
+            set members{% for w in wans %} {{ loop.index }}{% endfor %}
+
+            config sla
+                edit 1
+                    set latency-threshold {{ hc.latency }}
+                    set jitter-threshold {{ hc.jitter }}
+                    set packetloss-threshold {{ hc.loss }}
+                next
+            end
+        next
+    end
+end
+config router static
+    edit 0
+        set sdwan-zone "virtual-wan-link"
+        set comment "Default via SD-WAN"
+    next
+end
+{% elif wans[0].mode == 'static' %}
+{# 3b) Én statisk WAN: default-rute #}
+config router static
+    edit 0
+        set gateway {{ wans[0].gateway }}
+        set device "{{ wans[0].port }}"
+        set comment "Default route"
+    next
+end
+{% endif %}

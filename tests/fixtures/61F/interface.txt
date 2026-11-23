@@ -1,0 +1,119 @@
+config system interface
+    edit "wan1"
+        set vdom "root"
+        set mode dhcp
+        set allowaccess ping fgfm
+        set type physical
+        set role wan
+        set snmp-index 1
+        config ipv6
+            set ip6-mode dhcp
+            set ip6-allowaccess ping
+        end
+    next
+    edit "wan2"
+        set vdom "root"
+        set mode dhcp
+        set allowaccess ping fgfm
+        set type physical
+        set role wan
+        set snmp-index 2
+        config ipv6
+            set ip6-mode dhcp
+            set ip6-allowaccess ping
+        end
+    next
+    edit "dmz"
+        set vdom "root"
+        set ip 10.10.10.1 255.255.255.0
+        set allowaccess ping https fabric
+        set type physical
+        set role dmz
+        set snmp-index 3
+    next
+    edit "internal1"
+        set vdom "root"
+        set type physical
+        set snmp-index 4
+    next
+    edit "internal2"
+        set vdom "root"
+        set type physical
+        set snmp-index 5
+    next
+    edit "internal3"
+        set vdom "root"
+        set type physical
+        set snmp-index 6
+    next
+    edit "internal4"
+        set vdom "root"
+        set type physical
+        set snmp-index 7
+    next
+    edit "internal5"
+        set vdom "root"
+        set type physical
+        set snmp-index 8
+    next
+    edit "a"
+        set vdom "root"
+        set type physical
+        set snmp-index 9
+    next
+    edit "b"
+        set vdom "root"
+        set type physical
+        set snmp-index 10
+    next
+    edit "modem"
+        set vdom "root"
+        set mode pppoe
+        set status down
+        set type physical
+        set snmp-index 11
+    next
+    edit "naf.root"
+        set vdom "root"
+        set type tunnel
+        set src-check disable
+        set snmp-index 12
+    next
+    edit "l2t.root"
+        set vdom "root"
+        set type tunnel
+        set snmp-index 13
+    next
+    edit "ssl.root"
+        set vdom "root"
+        set type tunnel
+        set alias "Agentless VPN interface"
+        set snmp-index 14
+    next
+    edit "internal"
+        set vdom "root"
+        set ip 192.168.1.99 255.255.255.0
+        set allowaccess ping https ssh fabric
+        set type hard-switch
+        set stp enable
+        set role lan
+        set snmp-index 15
+    next
+    edit "default-mesh"
+        set vdom "root"
+        set type vap-switch
+        set role lan
+        set snmp-index 16
+    next
+    edit "fortilink"
+        set vdom "root"
+        set fortilink enable
+        set ip 10.255.1.1 255.255.255.0
+        set allowaccess ping fabric
+        set type aggregate
+        set member "a" "b"
+        set lldp-reception enable
+        set lldp-transmission enable
+        set snmp-index 17
+    next
+end

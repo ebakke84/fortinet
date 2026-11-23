@@ -1,0 +1,3 @@
+config system global
+    set alias "FortiGate-40F"
+end

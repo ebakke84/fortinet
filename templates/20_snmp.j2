@@ -1,0 +1,34 @@
+config system snmp sysinfo
+    set status enable
+{% if snmp.sysinfo.description %}
+    set description "{{ snmp.sysinfo.description }}"
+{% endif %}
+{% if snmp.sysinfo.contact %}
+    set contact-info "{{ snmp.sysinfo.contact }}"
+{% endif %}
+{% if snmp.sysinfo.location %}
+    set location "{{ snmp.sysinfo.location }}"
+{% endif %}
+end
+{% if snmp.users %}
+config system snmp user
+{% for u in snmp.users %}
+    edit "{{ u.name }}"
+        set status enable
+        set queries enable
+        set security-level {{ u.security_level }}
+{% if u.security_level != 'no-auth-no-priv' %}
+        set auth-proto {{ u.auth_proto }}
+        set auth-pwd "{{ u.auth_pwd }}"
+{% endif %}
+{% if u.security_level == 'auth-priv' %}
+        set priv-proto {{ u.priv_proto }}
+        set priv-pwd "{{ u.priv_pwd }}"
+{% endif %}
+{% if u.notify_hosts %}
+        set notify-hosts {{ u.notify_hosts | join(' ') }}
+{% endif %}
+    next
+{% endfor %}
+end
+{% endif %}

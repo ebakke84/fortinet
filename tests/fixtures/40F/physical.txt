@@ -1,0 +1,7 @@
+== [onboard]
+        ==[wan]
+                mode: dhcp
+        ==[lan1]
+        ==[lan2]
+        ==[lan3]
+        ==[a]

@@ -1,0 +1,16 @@
+# Lokale innstillinger og hemmeligheter – aldri i Git
+site_defaults.yaml
+secrets.env
+
+# Kundedata fra kjøringer
+output/
+collected/
+
+# Python / macOS
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+build/
+dist/
+*.spec

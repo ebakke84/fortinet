@@ -1,0 +1,11 @@
+config system global
+    set hostname "{{ hostname }}"
+    set timezone "{{ timezone }}"
+    set admintimeout {{ admin_timeout }}
+    set admin-sport {{ admin_https_port }}
+    set admin-https-ssl-versions {{ admin_tls }}
+{% if fix_cfg_save %}
+    set cfg-save automatic
+{% endif %}
+end
+{% include "_trusthosts.j2" %}

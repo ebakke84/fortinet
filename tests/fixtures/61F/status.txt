@@ -1,0 +1,38 @@
+Version: FortiGate-61F v7.6.6,build3652,260127 (GA.M)
+First GA patch build date: 240724
+Current Security Level: Low
+Firmware Signature: certified
+Virus-DB: 1.00000(2018-04-09 18:07)
+Extended DB: 1.00000(2018-04-09 18:07)
+AV AI/ML Model: 0.00000(2001-01-01 00:00)
+IPS-DB: 6.00741(2015-12-01 02:30)
+IPS-ETDB: 0.00000(2001-01-01 00:00)
+IPS-MLDB: 0.00000(2001-01-01 00:00)
+APP-DB: 6.00741(2015-12-01 02:30)
+AIAP-DB: 0.00000(2001-01-01 00:00)
+FMWP-DB: 0.00000(2001-01-01 00:00)
+IPS Malicious URL Database: 1.00001(2015-01-01 01:01)
+IoT-Detect: 0.00000(2022-08-17 17:31)
+OT-Detect-DB: 0.00000(2001-01-01 00:00)
+OT-Patch-DB: 0.00000(2001-01-01 00:00)
+OT-Threat-DB: 6.00741(2015-12-01 02:30)
+IPS-Engine: 7.01168(2025-11-19 22:37)
+Timezone DB Version: 1.003
+Timezone DB IANA Version: 2024a
+Serial-Number: FGT61FTK00000001
+BIOS version: 05000009
+System Part-Number: P24293-03
+Log hard disk: Available
+Hostname: FortiGate-61F
+Private Encryption: Disable
+Operation Mode: NAT
+Current virtual domain: root
+Max number of virtual domains: 10
+Virtual domains status: 1 in NAT mode, 0 in TP mode
+Virtual domain configuration: disable
+FIPS-CC mode: disable
+Current HA mode: standalone
+Branch point: 3652
+Release Version Information: GA
+System time: Wed Nov 11 10:43:18 2026
+Last reboot reason: warm reboot

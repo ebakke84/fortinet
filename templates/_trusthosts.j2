@@ -1,0 +1,12 @@
+{# Brukes både under oppsett (med provisjoneringsnett) og til slutt (endelig liste) #}
+{% set th = hosts if hosts is defined else trusthosts %}
+config system admin
+    edit "{{ admin_user }}"
+{% for h in th %}
+        set trusthost{{ loop.index }} {{ h }}
+{% endfor %}
+{% for n in range(th | length + 1, 11) %}
+        unset trusthost{{ n }}
+{% endfor %}
+    next
+end

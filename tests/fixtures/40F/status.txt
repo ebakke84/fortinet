@@ -1,0 +1,5 @@
+Version: FortiGate-40F v7.6.8,build0000,000000 (GA.M)
+Serial-Number: FGT40FTK00000000
+Hostname: FGT40FTK00000000
+Operation Mode: NAT
+Virtual domain configuration: disable

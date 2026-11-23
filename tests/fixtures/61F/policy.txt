@@ -1,0 +1,13 @@
+config firewall policy
+    edit 1
+        set uuid 247dec38-ddfe-51f1-1513-18df0d304f13
+        set srcintf "internal"
+        set dstintf "wan1"
+        set action accept
+        set srcaddr "all"
+        set dstaddr "all"
+        set schedule "always"
+        set service "ALL"
+        set nat enable
+    next
+end

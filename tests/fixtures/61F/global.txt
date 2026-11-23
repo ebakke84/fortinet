@@ -1,0 +1,7 @@
+config system global
+    set alias "FortiGate-61F"
+    set hostname "FortiGate-61F"
+    set switch-controller enable
+    set timezone "US/Pacific"
+    set virtual-switch-vlan enable
+end

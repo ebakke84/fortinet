@@ -1,0 +1,54 @@
+# Faste innstillinger som brukes på alle bokser.
+# Passord kan hentes fra miljøvariabler med ${NAVN}, så de ikke trenger å ligge i fila.
+
+system:
+  timezone: "Europe/Oslo"        # FortiOS 7.6 bruker IANA-navn
+  admin_timeout: 15              # minutter (1–480)
+
+admin:
+  user: "admin"
+  https_port: 8443               # GUI-port (standard 443)
+  tls_versions: [tlsv1-2, tlsv1-3]   # tillatte TLS-versjoner for admin-GUI
+  # Nett som får logge inn på admin (maks 8 her).
+  trusted_hosts:
+    - 203.0.113.10/32            # eksempel: kontor/VPN
+    - 198.51.100.0/24            # eksempel: drift-nett
+  # Legg nytt LAN-nett til trusted hosts permanent.
+  # Settes det til false, legges det likevel inn under oppsettet og fjernes helt til slutt.
+  include_lan_subnet: true
+
+snmp:
+  allow_on_lan: true             # legger til 'snmp' i allowaccess på LAN-interfacet
+  sysinfo:
+    description: ""
+    contact: "drift@firma.no"
+    location: ""
+  users:
+    - name: "monitor"
+      security_level: auth-priv  # no-auth-no-priv | auth-no-priv | auth-priv
+      auth_proto: sha256         # md5 | sha | sha224 | sha256 | sha384 | sha512
+      auth_pwd: "${FGT_SNMP_AUTH}"
+      priv_proto: aes256         # aes | des | aes256 | aes256cisco
+      priv_pwd: "${FGT_SNMP_PRIV}"
+      notify_hosts:              # mottakere av SNMP-traps
+        - 192.0.2.50
+
+lan:
+  dns_servers: ["1.1.1.1", "8.8.8.8"]   # forslag i dialogen, til DHCP-klienter
+  dhcp_range_offsets: [100, 200]       # forslag: .100–.200 i et /24
+  dhcp_lease_time: 28800               # sekunder (8 timer)
+  allowaccess: "ping https ssh"        # brukes bare hvis interfacet ikke har noe fra før
+
+wan:
+  allowaccess: "ping"
+  remove_default_health_checks: true   # sletter Default_DNS, Default_Office_365 osv.
+  health_check:                        # brukes ved SD-WAN
+    name: "HC_Internet"
+    servers: ["1.1.1.1", "8.8.8.8"]
+    protocol: ping
+    latency_ms: 250
+    jitter_ms: 50
+    packetloss_pct: 5
+
+policy:
+  name: "LAN-to-Internet"

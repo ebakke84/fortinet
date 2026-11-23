@@ -1,0 +1,36 @@
+{# Siste steg. Når Mac-en står på dette interfacet, sendes alt på én gang og SSH faller ut. #}
+{% if part in ('all', 'iface') %}
+config system interface
+    edit "{{ lan.iface }}"
+        set ip {{ lan.ip }} {{ lan.mask }}
+        set allowaccess {{ lan.allowaccess }}
+    next
+end
+{% endif %}
+{% if part in ('all', 'dhcp') %}
+{% if lan.dhcp_enabled %}
+config system dhcp server
+    edit {{ lan.dhcp_id }}
+        set status enable
+        set interface "{{ lan.iface }}"
+        set default-gateway {{ lan.ip }}
+        set netmask {{ lan.mask }}
+        set lease-time {{ lan.lease_time }}
+        set dns-service specify
+{% for s in lan.dns %}
+        set dns-server{{ loop.index }} {{ s }}
+{% endfor %}
+        config ip-range
+            edit 1
+                set start-ip {{ lan.dhcp_start }}
+                set end-ip {{ lan.dhcp_end }}
+            next
+        end
+    next
+end
+{% elif lan.dhcp_id_existing %}
+config system dhcp server
+    delete {{ lan.dhcp_id_existing }}
+end
+{% endif %}
+{% endif %}
