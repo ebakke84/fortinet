@@ -216,3 +216,14 @@ def test_ensure_data_dir(tmp_path):
     made = C.ensure_data_dir(tmp_path / "data")
     assert set(made) == {"site_defaults.yaml", "secrets.env"}
     assert C.ensure_data_dir(tmp_path / "data") == []
+
+
+def test_mac_link_status(monkeypatch):
+    monkeypatch.setattr(C.sys, "platform", "darwin")
+    monkeypatch.setattr(C, "mac_iface_for", lambda h: "en5")
+    monkeypatch.setattr(C, "mac_ip", lambda i: "192.168.1.110")
+    assert C.mac_link_status("192.168.1.99") == {"iface": "en5", "ip": "192.168.1.110", "ready": True}
+    monkeypatch.setattr(C, "mac_ip", lambda i: "10.0.0.5")
+    assert C.mac_link_status("192.168.1.99")["ready"] is False
+    monkeypatch.setattr(C.sys, "platform", "linux")
+    assert C.mac_link_status("192.168.1.99") is None

@@ -19,3 +19,9 @@ class QThread(QObject):
         self.run()
 
     def isRunning(self): return False
+
+
+class QTimer(QObject):
+    timeout = Signal()
+    def start(self, *a): ...
+    def stop(self): ...

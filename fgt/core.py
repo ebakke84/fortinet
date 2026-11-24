@@ -1290,6 +1290,19 @@ def diagnose_old(opts: RunOptions, pw: str, lan: dict, ev: Events) -> None:
         ev.warn(f"Boksen svarer på port 22 på {opts.host}, men innlogging feilet: {e}")
 
 
+def mac_link_status(host: str) -> dict | None:
+    """Hvilket nettverkskort på Mac-en som når host, og om det har adresse i samme /24."""
+    if sys.platform != "darwin":
+        return None
+    try:
+        iface = mac_iface_for(host)
+        ip = mac_ip(iface) if iface else ""
+        ready = bool(ip) and ipaddress.ip_address(ip) in ipaddress.ip_network(f"{host}/24", strict=False)
+    except (ValueError, OSError):
+        return None
+    return {"iface": iface, "ip": ip, "ready": ready}
+
+
 def open_url(url: str) -> None:
     subprocess.run(["open", url])
 

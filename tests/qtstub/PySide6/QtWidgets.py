@@ -153,6 +153,7 @@ class QListWidget(QWidget):
     def addItem(self, it):
         self.items.append(it if isinstance(it, QListWidgetItem) else QListWidgetItem(it))
     def clear(self): self.items = []
+    def count(self): return len(self.items)
     def texts(self): return [i.text() for i in self.items]
 
 
@@ -180,6 +181,7 @@ class QGridLayout(_Layout):
 
 
 class QFormLayout(_Layout):
+    FieldGrowthPolicy = MagicMock()
     def addRow(self, *a): self._n += 1
     def rowCount(self): return self._n
     def setRowVisible(self, r, v): ...

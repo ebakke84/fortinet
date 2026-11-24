@@ -57,6 +57,15 @@ def test_offline_is_dry_run(win):
     assert not win.summary_page.run.isEnabled()                 # offline: ingen kjøring
 
 
+def test_connect_page_log_hidden_until_used(win):
+    cp = win.connect_page
+    assert not cp.log.isVisible() and cp.spacer.isVisible()
+    win.connect_box("192.168.1.99", "admin")
+    assert cp.log.count() > 0
+    win.restart()
+    assert not cp.log.isVisible()
+
+
 def test_live_run_ok(win):
     win.connect_box("192.168.1.99", "admin")
     fp = win.form_page

@@ -16,7 +16,7 @@ import sys
 import traceback
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QSettings, Qt, QThread, QUrl, Signal
+from PySide6.QtCore import QObject, QSettings, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QAction, QBrush, QColor, QDesktopServices, QFont, QKeySequence
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
@@ -37,10 +37,47 @@ QLabel#value    {{ font-weight: 600; }}
 QLabel#key      {{ color: {GREY}; }}
 QLabel#note     {{ color: {GREY}; }}
 QLabel#warn     {{ color: {ORANGE}; }}
-QLineEdit[invalid="true"] {{ border: 1px solid {RED}; border-radius: 4px; }}
-QPushButton#primary {{ font-weight: 600; padding: 6px 18px; }}
-QListWidget {{ border: none; font-size: 14px; }}
+QLabel#ok       {{ color: {GREEN}; }}
+
+QLineEdit, QComboBox {{
+    padding: 5px 8px; min-height: 22px;
+    border: 1px solid rgba(128,128,128,0.45); border-radius: 6px;
+    background: palette(base);
+}}
+QLineEdit:focus, QComboBox:focus {{ border: 2px solid palette(highlight); padding: 4px 7px; }}
+QLineEdit[invalid="true"] {{ border: 2px solid {RED}; padding: 4px 7px; }}
+QLineEdit:disabled, QComboBox:disabled {{ color: rgba(128,128,128,0.8); }}
+
+QPushButton {{
+    padding: 6px 16px; min-height: 22px; border-radius: 6px;
+    border: 1px solid rgba(128,128,128,0.45); background: palette(button);
+}}
+QPushButton:hover {{ border-color: palette(highlight); }}
+QPushButton:pressed {{ background: rgba(128,128,128,0.25); }}
+QPushButton#primary {{ background: palette(highlight); color: white; border: none; font-weight: 600; }}
+QPushButton#primary:hover {{ background: #3b82f6; }}
+QPushButton#primary:disabled {{ background: rgba(128,128,128,0.35); color: rgba(255,255,255,0.55); }}
+QPushButton:checked {{ background: rgba(128,128,128,0.25); }}
+
+QGroupBox {{
+    font-weight: 600; border: 1px solid rgba(128,128,128,0.35); border-radius: 10px;
+    margin-top: 16px; padding: 14px 12px 8px 12px;
+}}
+QGroupBox::title {{ subcontrol-origin: margin; left: 12px; padding: 0 4px; }}
+QFrame#card {{ border: 1px solid rgba(128,128,128,0.35); border-radius: 10px; }}
+QListWidget {{ border: none; font-size: 14px; background: transparent; }}
+QPlainTextEdit {{ border: 1px solid rgba(128,128,128,0.35); border-radius: 8px; }}
 """
+
+
+def tidy_form(f: QFormLayout) -> QFormLayout:
+    """Venstrejusterte etiketter og felt, som i Systeminnstillinger."""
+    f.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+    f.setFormAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+    f.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+    f.setHorizontalSpacing(16)
+    f.setVerticalSpacing(6)
+    return f
 
 
 # ───────────────────────────── tråd og hendelser ─────────────────────────────
@@ -161,7 +198,7 @@ class FieldForm:
     """QFormLayout med feilmelding under hvert felt."""
 
     def __init__(self, layout: QFormLayout):
-        self.lay = layout
+        self.lay = tidy_form(layout)
         self.err: dict[str, QLabel] = {}
         self.widgets: dict[str, QWidget] = {}
         self.rows: dict[str, list[int]] = {}
@@ -204,17 +241,42 @@ class ConnectPage(QWidget):
         super().__init__()
         self.win = win
         v = QVBoxLayout(self)
-        v.addWidget(header("Koble til FortiGate",
-                           "Koble Mac-en til en LAN-port på en fabrikknullstilt boks og vent "
-                           "til den har fått en 192.168.1.x-adresse."))
-        f = QFormLayout()
+        v.setSpacing(14)
+        v.addWidget(header("Koble til FortiGate", "Sett opp en fabrikknullstilt boks på noen minutter."))
+
+        card = QFrame()
+        card.setObjectName("card")
+        cv = QVBoxLayout(card)
+        cv.setContentsMargins(18, 14, 18, 14)
+        cv.addWidget(label("<b>Før du kobler til</b>"))
+        for i, t in enumerate(["Boksen er ny eller fabrikknullstilt (<code>execute factoryreset</code>).",
+                               "Mac-en er koblet med kabel til en LAN-port, f.eks. <i>internal1</i> eller <i>lan1</i> "
+                               "– ikke WAN.",
+                               "Mac-en har fått en 192.168.1.x-adresse fra boksen (se status under)."], 1):
+            cv.addWidget(label(f"{i}.&nbsp;&nbsp;{t}"))
+        self.link = label("", "note")
+        cv.addWidget(hline())
+        cv.addWidget(self.link)
+        v.addWidget(card)
+
+        f = tidy_form(QFormLayout())
         self.host = QLineEdit("192.168.1.99")
         self.user = QLineEdit("admin")
+        for w in (self.host, self.user):
+            w.setFixedWidth(260)
         f.addRow("FortiGate-adresse", self.host)
         f.addRow("Bruker", self.user)
         v.addLayout(f)
         self.log = QListWidget()
+        self.log.hide()
         v.addWidget(self.log, 1)
+        self.spacer = QWidget()
+        v.addWidget(self.spacer, 1)
+
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.check_link)
+        self.timer.start(2000)
+        self.check_link()
         self.offline_btn = QPushButton("Åpne lagret boks-data …")
         self.offline_btn.setToolTip("Prøvekjøring uten boks: velg en mappe med status.txt, interface.txt osv. "
                                     "(f.eks. tests/fixtures/61F eller raw/ fra en tidligere kjøring)")
@@ -228,6 +290,30 @@ class ConnectPage(QWidget):
     def busy(self, on: bool):
         for w in (self.go, self.offline_btn, self.host, self.user):
             w.setEnabled(not on)
+        if on:
+            self.log.clear()
+        self.show_log(on or self.log.count() > 0)
+
+    def show_log(self, on: bool):
+        self.log.setVisible(on)
+        self.spacer.setVisible(not on)
+
+    def check_link(self, *_):
+        """Viser om Mac-en har adresse i samme nett som boksen."""
+        if not self.isVisible() and self.link.text():
+            return
+        st = C.mac_link_status(self.host.text().strip() or "192.168.1.99")
+        if st is None:
+            self.link.setText("")
+        elif st["ready"]:
+            self.link.setObjectName("ok")
+            self.link.setText(f"✔  Mac-en har {st['ip']} på {st['iface']} – klar til å koble til")
+        else:
+            self.link.setObjectName("warn")
+            self.link.setText(f"⏳  Venter på 192.168.1.x-adresse fra boksen "
+                              f"(Mac-en har {st['ip'] or 'ingen adresse'} på {st['iface'] or '?'})")
+        self.link.style().unpolish(self.link)
+        self.link.style().polish(self.link)
 
 
 class FormPage(QWidget):
@@ -684,7 +770,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(C.APP_NAME)
-        self.resize(900, 780)
+        self.resize(860, 760)
+        self.setMinimumSize(720, 600)
         self.settings = QSettings("FortiGateSetup", "FortiGateSetup")
         self.data_dir = Path(self.settings.value("data_dir", str(C.default_data_dir())))
         made = C.ensure_data_dir(self.data_dir)
@@ -746,6 +833,7 @@ class MainWindow(QMainWindow):
         self.dev, self.plan, self.offline = None, None, False
         self.connect_page.log.clear()
         self.connect_page.busy(False)
+        self.connect_page.show_log(False)
         self.show_page(self.connect_page)
 
     def run_bg(self, fn, done, failed):
@@ -785,6 +873,7 @@ class MainWindow(QMainWindow):
         b = self.bridge
         disconnect_all(b.step_start, b.step_end, b.message)
         log = self.connect_page.log
+        self.connect_page.show_log(True)
         b.step_start.connect(lambda n: log.addItem(f"⏳  {n} …"))
         b.step_end.connect(lambda n, ok: log.addItem(f"{'✔' if ok else '✖'}  {n}"))
         b.message.connect(lambda k, t: log.addItem(("⚠  " if k == "warn" else "·  ") + t))
