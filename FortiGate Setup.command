@@ -47,6 +47,8 @@ ${C}╰────────────────────────�
   ${C}3)${N} ${B}Hent info fra boks${N}   ${D}lagrer show-output til collected/${N}
   ${C}4)${N} ${B}Åpne output-mappa${N}
   ${C}5)${N} ${B}Rediger standardverdier${N} ${D}site_defaults.yaml${N}
+  ${C}6)${N} ${B}Start Mac-appen${N}      ${D}fra kildekoden${N}
+  ${C}7)${N} ${B}Bygg Mac-app${N}         ${D}lager FortiGate Setup.app${N}
   ${C}q)${N} Avslutt
 
 EOF
@@ -59,6 +61,13 @@ case "$choice" in
     3) $PY collect.py ;;
     4) mkdir -p output; open output; exit 0 ;;
     5) open -t site_defaults.yaml; exit 0 ;;
+    6) if ! $PY -c "import PySide6" 2>/dev/null; then
+           echo "${C}▸${N} Installerer PySide6 (første gang) ..."
+           $PY -m pip install -q -r requirements-app.txt || { echo "${R}✖ Installasjonen feilet${N}"; pause; exit 1; }
+       fi
+       FGT_DATA_DIR="$PWD" nohup $PY app.py >/dev/null 2>&1 &
+       exit 0 ;;
+    7) ./build_app.sh ;;
     q|Q) exit 0 ;;
     *) echo "${R}✖ Ukjent valg${N}" ;;
 esac

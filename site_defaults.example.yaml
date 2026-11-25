@@ -35,12 +35,12 @@ snmp:
 
 lan:
   dns_servers: ["1.1.1.1", "8.8.8.8"]   # forslag i dialogen, til DHCP-klienter
-  dhcp_range_offsets: [100, 200]       # forslag: .100–.200 i et /24
+  dhcp_range_offsets: [50, 250]        # forslag: .50–.250 i et /24
   dhcp_lease_time: 28800               # sekunder (8 timer)
   allowaccess: "ping https ssh"        # brukes bare hvis interfacet ikke har noe fra før
 
 wan:
-  allowaccess: "ping"
+  allowaccess: "ping https"            # https legges alltid til (admin-GUI, begrenset av trusted hosts)
   remove_default_health_checks: true   # sletter Default_DNS, Default_Office_365 osv.
   health_check:                        # brukes ved SD-WAN
     name: "HC_Internet"
