@@ -906,11 +906,8 @@ def _applescript_str(s: str) -> str:
 
 # ───────────────────────────── innlogging og lesing ─────────────────────────────
 
-def first_login(host: str, user: str, ev: Events) -> str | None:
-    """Logg inn med tomt passord og håndter tvunget passordbytte.
-
-    Returnerer nytt passord, eller None hvis boksen allerede har passord.
-    """
+def _empty_login(host: str, user: str):
+    """SSH-innlogging med tomt passord. Returnerer (transport, shell-kanal, tekst så langt) eller None."""
     import paramiko
 
     t = paramiko.Transport((host, 22))
@@ -938,22 +935,46 @@ def first_login(host: str, user: str, ev: Events) -> str | None:
     if not authed:
         t.close()
         return None
-
     chan = t.open_session()
     chan.get_pty(width=200)
     chan.invoke_shell()
-    buf = _read_until(chan, r"New Password:|#\s*$", 20)
+    return t, chan, _read_until(chan, r"New Password:|#\s*$", 20)
+
+
+def first_login(host: str, user: str, ev: Events) -> str | None:
+    """Logg inn med tomt passord og håndter tvunget passordbytte.
+
+    Returnerer nytt passord, eller None hvis boksen allerede har passord.
+
+    Passordet spørres om mens INGEN SSH-økt står åpen: FortiGaten kaster deg ut av
+    «New Password»-spørsmålet etter en stund, og en dialog i appen kan ta tid.
+    Derfor: sjekk først, lukk, spør, og logg så inn på nytt og send passordet med en gang.
+    """
+    first = _empty_login(host, user)
+    if first is None:
+        return None
+    t, _chan, buf = first
+    t.close()
     if "New Password" not in buf:
-        t.close()
         raise Abort("Boksen godtok tomt passord uten å kreve bytte. Sett admin-passord "
                     "manuelt i GUI/CLI og kjør på nytt.")
     ev.info("Fabrikknullstilt boks – velg nytt admin-passord for FortiGaten")
     pw = ev.new_password()
-    chan.send(pw + "\n")
-    _read_until(chan, r"Confirm Password:", 15)
-    chan.send(pw + "\n")
-    buf = _read_until(chan, r"New Password:|#\s*$|[Ee]rror|[Ii]nvalid", 20)
-    t.close()
+
+    again = _empty_login(host, user)
+    if again is None:
+        raise Abort("Boksen godtok ikke tomt passord andre gang. Har noen allerede satt passord? "
+                    "Prøv å koble til på nytt og bruk det passordet.")
+    t, chan, buf = again
+    try:
+        if "New Password" not in buf:
+            raise Abort("Boksen ba ikke om nytt passord andre gang. Prøv å koble til på nytt.")
+        chan.send(pw + "\n")
+        _read_until(chan, r"Confirm Password:", 15)
+        chan.send(pw + "\n")
+        buf = _read_until(chan, r"New Password:|#\s*$|[Ee]rror|[Ii]nvalid", 20)
+    finally:
+        t.close()
     if "New Password" in buf or re.search(r"[Ee]rror|[Ii]nvalid", buf):
         raise Abort("FortiGaten avviste passordet (passordpolicy?). Svar fra boksen:\n" + buf[-400:])
     ev.ok("Admin-passord satt")
@@ -966,11 +987,19 @@ def connect(host: str, user: str, ev: Events) -> tuple["LiveDevice", str]:
         reachable = wait_port(host, 22, 10)
     if not reachable:
         raise Abort(f"Når ikke SSH på {host}. Står Mac-en på LAN-porten og har fått DHCP?")
-    pw = first_login(host, user, ev)
-    if pw is None:
-        pw = ev.password(f"FortiGate-passord for {user}")
-    LOG.secrets.add(pw)
-    return LiveDevice(host, user, pw), pw
+    try:
+        pw = first_login(host, user, ev)
+        if pw is None:
+            pw = ev.password(f"FortiGate-passord for {user}")
+        LOG.secrets.add(pw)
+        with ev.step("Logger inn"):
+            dev = LiveDevice(host, user, pw)
+    except Abort:
+        raise
+    except Exception as e:  # noqa: BLE001 – gjør SSH-/nettverksfeil forståelige
+        raise Abort(f"SSH-feil mot {host}: {type(e).__name__}: {e or 'forbindelsen ble brutt'}. "
+                    "Prøv å koble til på nytt.") from e
+    return dev, pw
 
 
 def read_box(dev, host: str, ev: Events) -> tuple[dict, dict]:

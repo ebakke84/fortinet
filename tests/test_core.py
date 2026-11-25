@@ -227,3 +227,41 @@ def test_mac_link_status(monkeypatch):
     assert C.mac_link_status("192.168.1.99")["ready"] is False
     monkeypatch.setattr(C.sys, "platform", "linux")
     assert C.mac_link_status("192.168.1.99") is None
+
+
+class _FakeT:
+    def __init__(self, log): self.log, self.closed = log, False
+    def close(self): self.closed = True; self.log.append("close")
+
+
+class _FakeChan:
+    def __init__(self, log): self.log = log
+    def send(self, t): self.log.append("send")
+
+
+def test_first_login_asks_password_with_no_session_open(monkeypatch):
+    log = []
+
+    def empty_login(host, user):
+        log.append("login")
+        return _FakeT(log), _FakeChan(log), "You are forced to change your password.\nNew Password:"
+    monkeypatch.setattr(C, "_empty_login", empty_login)
+    monkeypatch.setattr(C, "_read_until", lambda ch, pat, to: "Confirm Password:" if "Confirm" in pat else "FGT #")
+
+    class Ev(C.Events):
+        def new_password(self):
+            log.append("ASK")
+            return "Hemmelig1"
+    assert C.first_login("192.168.1.99", "admin", Ev()) == "Hemmelig1"
+    # sjekk -> lukk -> spør -> ny innlogging -> send to ganger -> lukk
+    assert log == ["login", "close", "ASK", "login", "send", "send", "close"]
+
+
+def test_connect_turns_ssh_errors_into_clear_message(monkeypatch):
+    monkeypatch.setattr(C, "wait_port", lambda *a, **k: True)
+
+    def boom(*a):
+        raise OSError("Socket is closed")
+    monkeypatch.setattr(C, "first_login", boom)
+    with pytest.raises(C.Abort, match="SSH-feil mot 192.168.1.99: OSError: Socket is closed"):
+        C.connect("192.168.1.99", "admin", C.Events())

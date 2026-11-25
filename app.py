@@ -657,6 +657,7 @@ class RunPage(QWidget):
 
     def finish_fail(self, e: BaseException):
         self.head.t.setText("Stoppet")
+        self.win.write_error_log(e)
         self.result.setText(f"<span style='color:{RED};font-size:15px;font-weight:600'>✖  {e}</span><br>"
                             "Endringene frem til feilen er lagret på boksen. Rett feilen og kjør på nytt, "
                             "eller start helt på nytt med <code>execute factoryreset</code> på boksen.")
@@ -922,10 +923,19 @@ class MainWindow(QMainWindow):
     def connect_failed(self, e):
         self.connect_page.busy(False)
         log = self.connect_page.log
-        log.addItem(f"✖  {e or type(e).__name__}")
-        if not isinstance(e, C.Abort):
-            log.addItem(f"·  {type(e).__name__} – detaljer i Terminal hvis appen startes derfra")
-            print(getattr(e, "tb", ""), file=sys.stderr)
+        log.addItem(f"✖  {e}" if isinstance(e, C.Abort) else f"✖  {type(e).__name__}: {e}")
+        path = self.write_error_log(e)
+        log.addItem(f"·  Detaljer: {path}")
+
+    def write_error_log(self, e: BaseException) -> Path:
+        """Feildetaljer til app.log i datamappa (appen har ingen Terminal å skrive til)."""
+        import datetime as dt
+        path = self.data_dir / "app.log"
+        with contextlib.suppress(OSError):
+            with path.open("a", encoding="utf-8") as f:
+                f.write(f"\n=== {dt.datetime.now():%Y-%m-%d %H:%M:%S} ===\n")
+                f.write(C.LOG.mask(getattr(e, "tb", "") or repr(e)))
+        return path
 
     # ── steg 2–3: plan ──
     def make_plan(self, answers: dict):
