@@ -44,6 +44,10 @@ QLineEdit, QComboBox {{
     border: 1px solid rgba(128,128,128,0.45); border-radius: 6px;
     background: palette(base);
 }}
+QComboBox QAbstractItemView {{
+    background: palette(base); color: palette(text); border: 1px solid rgba(128,128,128,0.45);
+    selection-background-color: palette(highlight); selection-color: white; padding: 4px;
+}}
 QLineEdit:focus, QComboBox:focus {{ border: 2px solid palette(highlight); padding: 4px 7px; }}
 QLineEdit[invalid="true"] {{ border: 2px solid {RED}; padding: 4px 7px; }}
 QLineEdit:disabled, QComboBox:disabled {{ color: rgba(128,128,128,0.8); }}
@@ -192,6 +196,43 @@ def scroll(inner: QWidget) -> QScrollArea:
     sa.setFrameShape(QFrame.Shape.NoFrame)
     sa.setWidget(inner)
     return sa
+
+
+class Choice(QWidget):
+    """Valg side om side (radioknapper) med samme grensesnitt som en QComboBox."""
+    currentIndexChanged = Signal(int)
+
+    def __init__(self, *items: tuple[str, str]):
+        super().__init__()
+        h = QHBoxLayout(self)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(18)
+        self.group = QButtonGroup(self)
+        self.buttons: list[QRadioButton] = []
+        self.data: list[str] = []
+        for text, data in items:
+            b = QRadioButton(text)
+            self.group.addButton(b)
+            h.addWidget(b)
+            b.toggled.connect(self._toggled)
+            self.buttons.append(b)
+            self.data.append(data)
+        h.addStretch(1)
+        if self.buttons:
+            self.buttons[0].setChecked(True)
+
+    def _toggled(self, on: bool, *_):
+        if on:
+            self.currentIndexChanged.emit(self.currentIndex())
+
+    def currentIndex(self) -> int:
+        return next((i for i, b in enumerate(self.buttons) if b.isChecked()), 0)
+
+    def currentData(self) -> str:
+        return self.data[self.currentIndex()]
+
+    def setCurrentIndex(self, i: int):
+        self.buttons[i].setChecked(True)
 
 
 class FieldForm:
@@ -374,13 +415,11 @@ class FormPage(QWidget):
             ff = FieldForm(QFormLayout(box))
             w = {
                 "port": ff.add(f"wan{n}_port", "Port", QComboBox()),
-                "mode": ff.add(f"wan{n}_mode", "Adressering", QComboBox()),
+                "mode": ff.add(f"wan{n}_mode", "Adressering", Choice(("DHCP", "dhcp"), ("Statisk IP", "static"))),
                 "ip": ff.add(f"wan{n}_ip", "IP / prefiks", QLineEdit()),
                 "gateway": ff.add(f"wan{n}_gateway", "Gateway", QLineEdit()),
                 "alias": ff.add(f"wan{n}_alias", "Navn", QLineEdit(), "Valgfritt, f.eks. Telenor (maks 25 tegn)"),
             }
-            w["mode"].addItem("DHCP", "dhcp")
-            w["mode"].addItem("Statisk", "static")
             w["ip"].setPlaceholderText("f.eks. 84.208.10.10/29")
             w["mode"].currentIndexChanged.connect(self.update_visibility)
             w["port"].currentIndexChanged.connect(self.update_port_hint)

@@ -40,7 +40,7 @@ lan:
   allowaccess: "ping https ssh"        # brukes bare hvis interfacet ikke har noe fra før
 
 wan:
-  allowaccess: "ping"
+  allowaccess: "ping https"            # https legges alltid til (admin-GUI, begrenset av trusted hosts)
   remove_default_health_checks: true   # sletter Default_DNS, Default_Office_365 osv.
   health_check:                        # brukes ved SD-WAN
     name: "HC_Internet"

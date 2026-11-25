@@ -93,6 +93,7 @@ def test_live_run_fail_shows_box_reply(win, monkeypatch):
     fill(fp)
     fp.wan_boxes[0][1]["alias"].setText("Telenor")
     fp.submit()
+    assert win.plan.ctx["wans"][0]["mode"] == "dhcp"
     win.confirm_run()
     assert win.run_page.head.t.text() == "Stoppet"
     assert "parse error" in win.run_page.detail.toPlainText()
@@ -109,3 +110,21 @@ def test_settings_validates(win):
     dlg.priv.setText("NyPriv12345")
     dlg.save()
     assert "FGT_SNMP_AUTH='NyAuth12345'" in (win.data_dir / "secrets.env").read_text()
+
+
+def test_static_choice_shows_ip_fields(win):
+    W.QFileDialog.getExistingDirectory.return_value = str(ROOT / "tests" / "fixtures" / "61F")
+    win.open_offline()
+    fp = win.form_page
+    w1 = fp.wan_boxes[0][1]
+    assert w1["mode"].currentData() == "dhcp"
+    shown = []
+    fp.fw[0].set_visible = lambda key, v: shown.append((key, v))
+    w1["mode"].setCurrentIndex(1)
+    assert w1["mode"].currentData() == "static"
+    assert ("wan1_ip", True) in shown and ("wan1_gateway", True) in shown
+    fill(fp)
+    w1["ip"].setText("84.208.10.10/29")
+    w1["gateway"].setText("84.208.10.9")
+    fp.submit()
+    assert win.plan.ctx["wans"][0]["ip"] == "84.208.10.10"

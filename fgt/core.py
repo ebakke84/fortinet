@@ -374,7 +374,9 @@ def load_defaults(path: Path) -> dict:
         "admin_tls": _tls_versions(admin.get("tls_versions", ["tlsv1-2", "tlsv1-3"])),
         "trusted_hosts": [ipaddress.ip_network(x, strict=False) for x in admin.get("trusted_hosts", [])],
         "trust_lan_subnet": bool(admin.get("include_lan_subnet", True)),
-        "wan_allowaccess": str(wan.get("allowaccess", "ping")),
+        # https (admin-GUI) er alltid med på WAN, uansett hva som står i fila.
+        # Tilgangen begrenses av trusted hosts.
+        "wan_allowaccess": " ".join(dict.fromkeys(str(wan.get("allowaccess", "ping")).split() + ["https"])),
         "remove_default_hc": bool(wan.get("remove_default_health_checks", True)),
         "hc": {
             "name": str(wan.get("health_check", {}).get("name", "HC_Internet")),

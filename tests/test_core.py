@@ -105,6 +105,7 @@ def test_plan_61f_sdwan(defaults, tmp_path):
     assert "set admin-https-ssl-versions tlsv1-2 tlsv1-3" in cfg
     assert "set lease-time 28800" in cfg
     assert 'set dstintf "virtual-wan-link"' in cfg
+    assert cfg.count("set allowaccess ping https\n") == 2          # https på begge WAN
     assert "********" in cfg and "AuthPass123!" not in cfg    # passord maskert
     assert (plan.out_dir / "config.txt").exists()
     assert C.gui_url(plan.ctx) == "https://10.20.30.1:8443"
@@ -117,6 +118,7 @@ def test_plan_40f_single_wan(defaults, tmp_path):
     assert err == {}
     plan = C.make_plan(dev, info, raw, defaults, a, tmp_path)
     assert 'set dstintf "wan"' in plan.cfg_text
+    assert "set allowaccess ping https\n" in plan.cfg_text           # https også med én WAN
     assert "config system sdwan\n    set status enable" not in plan.cfg_text
 
 
@@ -265,3 +267,10 @@ def test_connect_turns_ssh_errors_into_clear_message(monkeypatch):
     monkeypatch.setattr(C, "first_login", boom)
     with pytest.raises(C.Abort, match="SSH-feil mot 192.168.1.99: OSError: Socket is closed"):
         C.connect("192.168.1.99", "admin", C.Events())
+
+
+def test_wan_https_always_added(tmp_path):
+    y = (ROOT / "site_defaults.example.yaml").read_text().replace('allowaccess: "ping https"', 'allowaccess: "ping"')
+    f = tmp_path / "d.yaml"
+    f.write_text(y)
+    assert C.load_defaults(f)["wan_allowaccess"] == "ping https"
