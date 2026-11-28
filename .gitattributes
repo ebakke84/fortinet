@@ -1,0 +1,5 @@
+# Windows-script må ha CRLF, shell-script LF – uansett hvor de sjekkes ut.
+*.bat      text eol=crlf
+*.cmd      text eol=crlf
+*.sh       text eol=lf
+*.command  text eol=lf

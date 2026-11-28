@@ -3,7 +3,7 @@
 Kjernen i FortiGate-oppsettet: lese boksen, validere svar, lage konfig og kjøre den.
 
 Ingen input() eller print() her. All kontakt med brukeren går gjennom et
-Events-objekt, slik at både Terminal-versjonen (setup.py) og Mac-appen (app.py)
+Events-objekt, slik at både Terminal-versjonen (setup.py) og appen (app.py)
 kan bruke den samme logikken.
 """
 from __future__ import annotations
@@ -17,7 +17,9 @@ import shlex
 import socket
 import subprocess
 import sys
+import tempfile
 import time
+import webbrowser
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -41,13 +43,17 @@ PROJECT_DIR = Path(__file__).resolve().parent.parent
 def default_data_dir() -> Path:
     """Der site_defaults.yaml, secrets.env og output/ ligger.
 
-    Fra kildekoden: prosjektmappa (som før). I .app-en: ~/Library/Application Support/FortiGate Setup,
-    med mindre FGT_DATA_DIR er satt.
+    Fra kildekoden: prosjektmappa (som før). I bygd app: ~/Library/Application Support/FortiGate Setup
+    på Mac og %APPDATA%\\FortiGate Setup på Windows, med mindre FGT_DATA_DIR er satt.
     """
     if os.environ.get("FGT_DATA_DIR"):
         return Path(os.environ["FGT_DATA_DIR"]).expanduser()
     if getattr(sys, "frozen", False):
-        return Path.home() / "Library" / "Application Support" / APP_NAME
+        if sys.platform == "win32":
+            return Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming") / APP_NAME
+        if sys.platform == "darwin":
+            return Path.home() / "Library" / "Application Support" / APP_NAME
+        return Path.home() / ".local" / "share" / APP_NAME
     return PROJECT_DIR
 
 
@@ -324,7 +330,7 @@ def pick_alias(net, gw, start, end):
         if ip != gw and not in_range:
             return ip
         a -= 1
-    raise Abort("Fant ingen ledig adresse til Mac-alias i LAN-nettet.")
+    raise Abort("Fant ingen ledig adresse til midlertidig IP i LAN-nettet.")
 
 
 def expand_env(o):
@@ -589,14 +595,116 @@ def wait_port(host: str, port: int, timeout: float) -> bool:
     return False
 
 
-def mac_iface_for(host: str) -> str | None:
-    out = subprocess.run(["route", "-n", "get", host], capture_output=True, text=True).stdout
+# ───────────────────────── nettverkskortet på denne maskinen ─────────────────────────
+# Mac: route/ipconfig/ifconfig.  Windows: PowerShell (NetTCPIP) og netsh.
+
+def is_windows() -> bool:
+    return sys.platform == "win32"
+
+
+def local_net_supported() -> bool:
+    """Kan vi lese og endre nettverkskortet automatisk på denne maskinen?"""
+    return sys.platform in ("darwin", "win32")
+
+
+def this_pc() -> str:
+    return "Mac-en" if sys.platform == "darwin" else "PC-en"
+
+
+def _run(cmd: list[str], **kw) -> subprocess.CompletedProcess:
+    """subprocess.run uten konsollvindu som blinker opp på Windows."""
+    if sys.platform == "win32":
+        kw.setdefault("creationflags", getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000))
+    return subprocess.run(cmd, capture_output=True, text=True, **kw)
+
+
+def _ps_str(s: str) -> str:
+    """PowerShell-streng i enkle anførselstegn."""
+    return "'" + s.replace("'", "''") + "'"
+
+
+def _ps(script: str) -> str:
+    try:
+        r = _run(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                  "-Command", script], timeout=20)
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return r.stdout.strip()
+
+
+def local_iface_for(host: str) -> str | None:
+    """Navnet på nettverkskortet som når host (en5 / «Ethernet 2»)."""
+    if is_windows():
+        out = _ps(f"(Find-NetRoute -RemoteIPAddress {_ps_str(host)} -ErrorAction SilentlyContinue "
+                  "| Select-Object -First 1).InterfaceAlias")
+        return out.splitlines()[0].strip() if out else None
+    out = _run(["route", "-n", "get", host]).stdout
     m = re.search(r"interface:\s*(\S+)", out)
     return m.group(1) if m else None
 
 
-def mac_ip(mif: str) -> str:
-    return subprocess.run(["ipconfig", "getifaddr", mif], capture_output=True, text=True).stdout.strip()
+def local_ip(iface: str) -> str:
+    """IPv4-adressen kortet har fått (DHCP foretrekkes foran manuelt lagt til)."""
+    if is_windows():
+        out = _ps(f"Get-NetIPAddress -InterfaceAlias {_ps_str(iface)} -AddressFamily IPv4 "
+                  "-ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -notlike '169.254.*' } "
+                  "| Sort-Object { $_.PrefixOrigin -ne 'Dhcp' } | Select-Object -First 1 "
+                  "-ExpandProperty IPAddress")
+        return out.splitlines()[0].strip() if out else ""
+    return _run(["ipconfig", "getifaddr", iface]).stdout.strip()
+
+
+def local_router(iface: str) -> str:
+    if is_windows():
+        out = _ps(f"(Get-NetIPConfiguration -InterfaceAlias {_ps_str(iface)} -ErrorAction "
+                  "SilentlyContinue).IPv4DefaultGateway | Select-Object -First 1 -ExpandProperty NextHop")
+        return out.splitlines()[0].strip() if out else ""
+    return _run(["ipconfig", "getoption", iface, "router"]).stdout.strip()
+
+
+def route_src_ip(host: str) -> str:
+    """Hvilken egen adresse operativsystemet ville brukt mot host (uten å sende noe)."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect((host, 9))
+            return s.getsockname()[0]
+    except OSError:
+        return ""
+
+
+# Kommandoer som starter med OPTIONAL får feile uten at resten stopper (brukes på Windows).
+OPTIONAL = "?"
+
+
+def alias_cmds(iface: str, ip: str, mask: str) -> list[list[str]]:
+    """Legg midlertidig ekstra IP på kortet."""
+    if is_windows():
+        # Windows 10 2004+/11: lar DHCP-adressen og en statisk adresse leve side om side.
+        return [[OPTIONAL, "netsh", "interface", "ipv4", "set", "interface", f"interface={iface}",
+                 "dhcpstaticipcoexistence=enabled"],
+                ["netsh", "interface", "ipv4", "add", "address", f"name={iface}",
+                 f"address={ip}", f"mask={mask}"]]
+    return [["ifconfig", iface, "alias", ip, "netmask", mask]]
+
+
+def cleanup_cmds(iface: str, ip: str, renew: bool) -> list[list[str]]:
+    """Fjern midlertidig IP og tving ny DHCP-lease (ny IP og ny gateway)."""
+    if is_windows():
+        cmds = [[OPTIONAL, "netsh", "interface", "ipv4", "delete", "address", f"name={iface}",
+                 f"address={ip}"],
+                [OPTIONAL, "netsh", "interface", "ipv4", "set", "interface", f"interface={iface}",
+                 "dhcpstaticipcoexistence=disabled"],
+                [OPTIONAL, "netsh", "interface", "ipv4", "set", "address", f"name={iface}", "source=dhcp"],
+                [OPTIONAL, "ipconfig", "/release", iface]]
+        if renew:
+            cmds.append([OPTIONAL, "ipconfig", "/renew", iface])
+        return cmds
+    # 'ipconfig set DHCP' alene fornyer ikke når kortet allerede står på DHCP.
+    # Bytt til BOOTP og tilbake, så slipper macOS den gamle leasen.
+    return [["ifconfig", iface, "-alias", ip],
+            ["ipconfig", "set", iface, "BOOTP"],
+            ["sleep", "1"],
+            ["ipconfig", "set", iface, "DHCP"]]
 
 
 def port_label(info: dict, p: str) -> str:
@@ -869,7 +977,7 @@ class Events:
 
 
 class AdminRunner:
-    """Kjører kommandoer som krever administrator på Mac-en (ifconfig/ipconfig)."""
+    """Kjører kommandoer som krever administrator på maskinen (ifconfig/ipconfig/netsh)."""
 
     def prepare(self) -> None:
         """Be om tilgang på forhånd, slik at senere kall ikke stopper midt i."""
@@ -886,6 +994,7 @@ class SudoRunner(AdminRunner):
 
     def run(self, cmds: list[list[str]]) -> None:
         for c in cmds:
+            c = [x for x in c if x != OPTIONAL]
             LOG.write("sudo " + " ".join(c))
             subprocess.run(["sudo", *c], check=True)
 
@@ -894,7 +1003,7 @@ class OsaRunner(AdminRunner):
     """App: macOS sin vanlige passorddialog (osascript ... with administrator privileges)."""
 
     def run(self, cmds: list[list[str]]) -> None:
-        script = " && ".join(" ".join(shlex.quote(x) for x in c) for c in cmds)
+        script = " && ".join(" ".join(shlex.quote(x) for x in c if x != OPTIONAL) for c in cmds)
         LOG.write("admin: " + script)
         osa = f'do shell script {_applescript_str(script)} with administrator privileges'
         r = subprocess.run(["osascript", "-e", osa], capture_output=True, text=True)
@@ -904,6 +1013,72 @@ class OsaRunner(AdminRunner):
 
 def _applescript_str(s: str) -> str:
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _cmd_line(c: list[str]) -> str:
+    """Én linje i en .cmd-fil. netsh-argumenter som navn=«Ethernet 2» får anførselstegn rundt verdien."""
+    out = []
+    for x in c:
+        k, eq, v = x.partition("=")
+        if eq and " " in v and not k.startswith("/"):
+            out.append(f'{k}="{v}"')
+        elif " " in x or not x:
+            out.append(f'"{x}"')
+        else:
+            out.append(x)
+    return " ".join(out)
+
+
+def uac_script(cmds: list[list[str]], log: str) -> str:
+    """Innholdet i .cmd-fila som kjøres som administrator."""
+    lines = ["@echo off", "chcp 65001 >nul"]
+    for c in cmds:
+        optional = bool(c) and c[0] == OPTIONAL
+        line = _cmd_line([x for x in c if x != OPTIONAL])
+        lines.append(f'echo ^> {line.replace("%", "%%")} >> "{log}"')
+        if optional:
+            lines.append(f'{line} >> "{log}" 2>&1')
+        else:
+            lines.append(f'{line} >> "{log}" 2>&1 || exit /b 1')
+    lines.append("exit /b 0")
+    return "\r\n".join(lines) + "\r\n"
+
+
+class UacRunner(AdminRunner):
+    """Windows: kjører kommandoene som administrator, Windows spør via sin vanlige UAC-dialog."""
+
+    def run(self, cmds: list[list[str]]) -> None:
+        tmp = Path(tempfile.mkdtemp(prefix="fgt-"))
+        bat, log = tmp / "admin.cmd", tmp / "admin.log"
+        bat.write_text(uac_script(cmds, str(log)), encoding="utf-8")
+        LOG.write("admin (UAC): " + " && ".join(_cmd_line([x for x in c if x != OPTIONAL]) for c in cmds))
+        args = _ps_str(f'/c "{bat}"')
+        ps = ("try { $p = Start-Process -FilePath $env:ComSpec "
+              f"-ArgumentList {args} "
+              "-Verb RunAs -WindowStyle Hidden -Wait -PassThru -ErrorAction Stop; exit $p.ExitCode } "
+              "catch { exit 1223 }")
+        r = _run(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps])
+        try:
+            out = log.read_text(encoding="utf-8", errors="replace").strip()
+        except OSError:
+            out = ""
+        if out:
+            LOG.write(out)
+        for f in (bat, log):
+            with contextlib.suppress(OSError):
+                f.unlink()
+        with contextlib.suppress(OSError):
+            tmp.rmdir()
+        if r.returncode != 0:
+            msg = "avbrutt i Windows-dialogen" if r.returncode == 1223 else (out.splitlines()[-1] if out else "")
+            raise subprocess.CalledProcessError(r.returncode, "admin", msg, msg)
+
+
+def admin_runner(gui: bool) -> AdminRunner:
+    """Riktig måte å få administratortilgang på for denne maskinen."""
+    if is_windows():
+        return UacRunner()
+    return OsaRunner() if gui else SudoRunner()
 
 
 # ───────────────────────────── innlogging og lesing ─────────────────────────────
@@ -988,7 +1163,7 @@ def connect(host: str, user: str, ev: Events) -> tuple["LiveDevice", str]:
     with ev.step(f"Kobler til {host}"):
         reachable = wait_port(host, 22, 10)
     if not reachable:
-        raise Abort(f"Når ikke SSH på {host}. Står Mac-en på LAN-porten og har fått DHCP?")
+        raise Abort(f"Når ikke SSH på {host}. Står {this_pc()} på LAN-porten og har fått DHCP?")
     try:
         pw = first_login(host, user, ev)
         if pw is None:
@@ -1192,25 +1367,34 @@ def execute(dev, plan: Plan, opts: RunOptions, pw: str, ev: Events, admin: Admin
     ctx, env = plan.ctx, plan.env
     lan = ctx["lan"]
     mac = None
+    manual = (f"Etter IP-byttet må {this_pc()} nå {lan['ip']}. Gi den f.eks. {lan['alias_ip']}/"
+              f"{a_prefix(lan)} som ekstra IP før du fortsetter.")
     if lan["same_iface"]:
-        if not opts.mac_alias or sys.platform != "darwin":
-            ev.confirm(f"Etter IP-byttet må PC-en nå {lan['ip']}. Gi den f.eks. {lan['alias_ip']}/"
-                       f"{a_prefix(lan)} som ekstra IP før du fortsetter.")
+        if not opts.mac_alias or not local_net_supported():
+            ev.confirm(manual)
         else:
-            mif = mac_iface_for(opts.host)
+            mif = local_iface_for(opts.host)
             if not mif:
-                raise Abort(f"Fant ikke hvilket nettverkskort på Mac-en som når {opts.host}")
-            my_ip = mac_ip(mif)
+                raise Abort(f"Fant ikke hvilket nettverkskort på {this_pc()} som når {opts.host}")
+            my_ip = local_ip(mif)
             new_net = ipaddress.ip_network(f"{lan['ip']}/{lan['mask']}", strict=False)
             if my_ip and ipaddress.ip_address(my_ip) in new_net:
-                ev.ok(f"Mac-en ({my_ip}) står allerede i {new_net}")
+                ev.ok(f"{this_pc()} ({my_ip}) står allerede i {new_net}")
             else:
-                ev.info(f"Mac-en får midlertidig IP {lan['alias_ip']} på {mif} for å nå nytt LAN")
-                ev.warn("macOS spør nå etter passordet til MAC-BRUKEREN din (ikke FortiGate)")
-                admin.prepare()
-                admin.run([["ifconfig", mif, "alias", lan["alias_ip"], "netmask", lan["mask"]]])
-                mac = (mif, lan["alias_ip"])
-                ev.ok("Midlertidig IP lagt til")
+                ev.info(f"{this_pc()} får midlertidig IP {lan['alias_ip']} på {mif} for å nå nytt LAN")
+                if is_windows():
+                    ev.warn("Windows spør nå om å la appen gjøre endringer (administrator på PC-en)")
+                else:
+                    ev.warn("macOS spør nå etter passordet til MAC-BRUKEREN din (ikke FortiGate)")
+                try:
+                    admin.prepare()
+                    admin.run(alias_cmds(mif, lan["alias_ip"], lan["mask"]))
+                except subprocess.CalledProcessError as e:
+                    ev.warn(f"Klarte ikke legge til midlertidig IP automatisk: {e.stderr or e}")
+                    ev.confirm(manual)
+                else:
+                    mac = (mif, lan["alias_ip"])
+                    ev.ok("Midlertidig IP lagt til")
 
     try:
         for st in plan.steps:
@@ -1257,7 +1441,7 @@ def execute(dev, plan: Plan, opts: RunOptions, pw: str, ev: Events, admin: Admin
         return status
     finally:
         if mac:
-            renew_mac_dhcp(mac[0], mac[1], lan, ev, admin)
+            renew_local_dhcp(mac[0], mac[1], lan, ev, admin)
 
 
 def collect_status(dev, ctx: dict) -> Status:
@@ -1274,15 +1458,10 @@ def collect_status(dev, ctx: dict) -> Status:
     return Status(default, sd)
 
 
-def renew_mac_dhcp(mif: str, alias: str, lan: dict, ev: Events, admin: AdminRunner) -> None:
-    """Fjern midlertidig IP og tving ny DHCP-lease (ny IP og ny gateway) på Mac-en."""
+def renew_local_dhcp(mif: str, alias: str, lan: dict, ev: Events, admin: AdminRunner) -> None:
+    """Fjern midlertidig IP og tving ny DHCP-lease (ny IP og ny gateway) på maskinen."""
     try:
-        # 'ipconfig set DHCP' alene fornyer ikke når kortet allerede står på DHCP.
-        # Bytt til BOOTP og tilbake, så slipper macOS den gamle leasen.
-        admin.run([["ifconfig", mif, "-alias", alias],
-                   ["ipconfig", "set", mif, "BOOTP"],
-                   ["sleep", "1"],
-                   ["ipconfig", "set", mif, "DHCP"]])
+        admin.run(cleanup_cmds(mif, alias, renew=bool(lan["dhcp_enabled"])))
     except subprocess.CalledProcessError as e:
         ev.warn(f"Klarte ikke rydde nettverkskortet automatisk: {e}")
         return
@@ -1290,19 +1469,18 @@ def renew_mac_dhcp(mif: str, alias: str, lan: dict, ev: Events, admin: AdminRunn
         ev.ok(f"Midlertidig IP {alias} fjernet")
         return
     net = ipaddress.ip_network(f"{lan['ip']}/{lan['mask']}", strict=False)
-    with ev.step("Mac-en henter ny DHCP-adresse"):
+    with ev.step(f"{this_pc()} henter ny DHCP-adresse"):
         end, got = time.time() + 45, ""
         while time.time() < end:
-            got = mac_ip(mif)
+            got = local_ip(mif)
             if got and ipaddress.ip_address(got) in net:
                 break
             time.sleep(2)
-    router = subprocess.run(["ipconfig", "getoption", mif, "router"],
-                            capture_output=True, text=True).stdout.strip()
+    router = local_router(mif)
     if got and ipaddress.ip_address(got) in net:
-        ev.ok(f"Mac-en har nå {got}, gateway {router or '?'}")
+        ev.ok(f"{this_pc()} har nå {got}, gateway {router or '?'}")
     else:
-        ev.warn(f"Mac-en fikk ikke adresse i {net} ennå. Trekk ut og sett inn kabelen.")
+        ev.warn(f"{this_pc()} fikk ikke adresse i {net} ennå. Trekk ut og sett inn kabelen.")
 
 
 def diagnose_old(opts: RunOptions, pw: str, lan: dict, ev: Events) -> None:
@@ -1321,21 +1499,40 @@ def diagnose_old(opts: RunOptions, pw: str, lan: dict, ev: Events) -> None:
         ev.warn(f"Boksen svarer på port 22 på {opts.host}, men innlogging feilet: {e}")
 
 
-def mac_link_status(host: str) -> dict | None:
-    """Hvilket nettverkskort på Mac-en som når host, og om det har adresse i samme /24."""
-    if sys.platform != "darwin":
+_IFACE_CACHE: dict[tuple[str, str], str | None] = {}
+
+
+def link_status(host: str) -> dict | None:
+    """Hvilket nettverkskort på maskinen som når host, og om det har adresse i samme /24.
+
+    Kalles hvert 2. sekund fra appen. På Windows er PowerShell tregt, så adressen leses
+    direkte fra operativsystemet og kortnavnet slås bare opp når adressen endrer seg.
+    """
+    if not local_net_supported():
         return None
     try:
-        iface = mac_iface_for(host)
-        ip = mac_ip(iface) if iface else ""
-        ready = bool(ip) and ipaddress.ip_address(ip) in ipaddress.ip_network(f"{host}/24", strict=False)
+        net = ipaddress.ip_network(f"{host}/24", strict=False)
+        if is_windows():
+            ip = route_src_ip(host)
+            key = (host, ip)
+            if key not in _IFACE_CACHE:
+                _IFACE_CACHE.clear()
+                _IFACE_CACHE[key] = local_iface_for(host) if ip else None
+            iface = _IFACE_CACHE[key]
+        else:
+            iface = local_iface_for(host)
+            ip = local_ip(iface) if iface else ""
+        ready = bool(ip) and ipaddress.ip_address(ip) in net
     except (ValueError, OSError):
         return None
     return {"iface": iface, "ip": ip, "ready": ready}
 
 
 def open_url(url: str) -> None:
-    subprocess.run(["open", url])
+    if sys.platform == "darwin":
+        subprocess.run(["open", url])
+    else:
+        webbrowser.open(url)
 
 
 def summary_rows(ctx: dict) -> list[tuple[str, str] | None]:
@@ -1371,6 +1568,7 @@ def summary_notes(ctx: dict) -> list[str]:
     if ctx["policy"]["exists"]:
         notes.append(f"Policy «{ctx['policy']['name']}» finnes fra før og beholdes")
     if ctx["lan"]["same_iface"]:
-        notes.append(f"Mac-en får midlertidig {ctx['lan']['alias_ip']} for å nå nytt LAN "
-                     "(macOS spør om Mac-passordet ditt)")
+        notes.append(f"{this_pc()} får midlertidig {ctx['lan']['alias_ip']} for å nå nytt LAN "
+                     + ("(Windows ber om administratortilgang)" if is_windows()
+                        else "(macOS spør om Mac-passordet ditt)"))
     return notes

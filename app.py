@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-FortiGate Setup – Mac-app (PySide6) oppå den samme kjernen som Terminal-versjonen.
+FortiGate Setup – app for Mac og Windows (PySide6) oppå den samme kjernen som Terminal-versjonen.
 
 Flyt:  Koble til  →  Skjema  →  Oppsummering  →  Konfigurering
 Start fra kildekode:  python3 app.py
@@ -26,6 +26,11 @@ from PySide6.QtWidgets import (
 )
 
 from fgt import core as C
+
+IS_MAC = sys.platform == "darwin"
+PC = C.this_pc()                                   # «Mac-en» / «PC-en» i tekstene
+MONO = "Menlo" if IS_MAC else "Consolas"
+PREFS_KEY = "⌘," if IS_MAC else "Ctrl+,"
 
 GREEN, RED, ORANGE, GREY = "#1f9d55", "#d93025", "#c77700", "#6b7280"
 
@@ -291,9 +296,9 @@ class ConnectPage(QWidget):
         cv.setContentsMargins(18, 14, 18, 14)
         cv.addWidget(label("<b>Før du kobler til</b>"))
         for i, t in enumerate(["Boksen er ny eller fabrikknullstilt (<code>execute factoryreset</code>).",
-                               "Mac-en er koblet med kabel til en LAN-port, f.eks. <i>internal1</i> eller <i>lan1</i> "
+                               f"{PC} er koblet med kabel til en LAN-port, f.eks. <i>internal1</i> eller <i>lan1</i> "
                                "– ikke WAN.",
-                               "Mac-en har fått en 192.168.1.x-adresse fra boksen (se status under)."], 1):
+                               f"{PC} har fått en 192.168.1.x-adresse fra boksen (se status under)."], 1):
             cv.addWidget(label(f"{i}.&nbsp;&nbsp;{t}"))
         self.link = label("", "note")
         cv.addWidget(hline())
@@ -340,19 +345,19 @@ class ConnectPage(QWidget):
         self.spacer.setVisible(not on)
 
     def check_link(self, *_):
-        """Viser om Mac-en har adresse i samme nett som boksen."""
+        """Viser om maskinen har adresse i samme nett som boksen."""
         if not self.isVisible() and self.link.text():
             return
-        st = C.mac_link_status(self.host.text().strip() or "192.168.1.99")
+        st = C.link_status(self.host.text().strip() or "192.168.1.99")
         if st is None:
             self.link.setText("")
         elif st["ready"]:
             self.link.setObjectName("ok")
-            self.link.setText(f"✔  Mac-en har {st['ip']} på {st['iface']} – klar til å koble til")
+            self.link.setText(f"✔  {PC} har {st['ip']} på {st['iface']} – klar til å koble til")
         else:
             self.link.setObjectName("warn")
             self.link.setText(f"⏳  Venter på 192.168.1.x-adresse fra boksen "
-                              f"(Mac-en har {st['ip'] or 'ingen adresse'} på {st['iface'] or '?'})")
+                              f"({PC} har {st['ip'] or 'ingen adresse'} på {st['iface'] or '?'})")
         self.link.style().unpolish(self.link)
         self.link.style().polish(self.link)
 
@@ -528,7 +533,7 @@ class FormPage(QWidget):
             p = w["port"].currentData()
             if p in self.info["vswitch_of"]:
                 hints.append(f"⚠  {p} flyttes ut av switchen '{self.info['vswitch_of'][p]}'. "
-                             "Pass på at Mac-en IKKE står i denne porten.")
+                             f"Pass på at {PC} IKKE står i denne porten.")
         self.port_hint.setText("\n".join(hints))
         self.port_hint.setVisible(bool(hints))
 
@@ -568,7 +573,7 @@ class SummaryPage(QWidget):
         v.addWidget(scroll(inner), 1)
         self.cli = QPlainTextEdit()
         self.cli.setReadOnly(True)
-        self.cli.setFont(QFont("Menlo", 12))
+        self.cli.setFont(QFont(MONO, 12))
         self.cli.hide()
         v.addWidget(self.cli, 1)
         self.toggle = QPushButton("Vis generert CLI")
@@ -631,7 +636,7 @@ class RunPage(QWidget):
         v.addWidget(self.result)
         self.detail = QPlainTextEdit()
         self.detail.setReadOnly(True)
-        self.detail.setFont(QFont("Menlo", 11))
+        self.detail.setFont(QFont(MONO, 11))
         self.detail.setMaximumHeight(160)
         self.detail.hide()
         v.addWidget(self.detail)
@@ -722,7 +727,7 @@ class SettingsDialog(QDialog):
         v.addWidget(label("Standardverdier som brukes på alle bokser (site_defaults.yaml). "
                           "Behold innrykket – bruk mellomrom, ikke tab.", "note"))
         self.edit = QPlainTextEdit(self.yaml_path.read_text(encoding="utf-8") if self.yaml_path.exists() else "")
-        self.edit.setFont(QFont("Menlo", 12))
+        self.edit.setFont(QFont(MONO, 12))
         v.addWidget(self.edit, 1)
 
         g = QGroupBox("SNMP-passord (lagres i secrets.env)")
@@ -843,12 +848,12 @@ class MainWindow(QMainWindow):
         self.build_menu()
         if made:
             self.statusBar().showMessage("Laget " + " og ".join(made) +
-                                         " fra eksempel. Fyll inn verdiene under Innstillinger (⌘,).", 15000)
+                                         f" fra eksempel. Fyll inn verdiene under Innstillinger ({PREFS_KEY}).", 15000)
 
     def build_menu(self):
         m = self.menuBar().addMenu("Fil")
         a = QAction("Innstillinger …", self)
-        a.setShortcut(QKeySequence.StandardKey.Preferences)
+        a.setShortcut(QKeySequence.StandardKey.Preferences if IS_MAC else QKeySequence("Ctrl+,"))
         a.setMenuRole(QAction.MenuRole.PreferencesRole)
         a.triggered.connect(self.open_settings)
         m.addAction(a)
@@ -922,7 +927,7 @@ class MainWindow(QMainWindow):
         try:
             self.d = self.load_settings()
         except C.Abort as e:
-            QMessageBox.warning(self, "Innstillinger", f"{e}\n\nÅpne Innstillinger (⌘,) og rett feilen.")
+            QMessageBox.warning(self, "Innstillinger", f"{e}\n\nÅpne Innstillinger ({PREFS_KEY}) og rett feilen.")
             return
         self.host, self.user, self.offline = host or "192.168.1.99", user or "admin", False
         self.log_to_connect()
@@ -1009,7 +1014,7 @@ class MainWindow(QMainWindow):
         self.show_page(rp)
         opts = C.RunOptions(host=self.host, user=self.user, mac_alias=True)
         plan, dev, pw = self.plan, self.dev, self.pw
-        self.run_bg(lambda: C.execute(dev, plan, opts, pw, self.ev, C.OsaRunner()),
+        self.run_bg(lambda: C.execute(dev, plan, opts, pw, self.ev, C.admin_runner(gui=True)),
                     lambda st: rp.finish_ok(plan.ctx, st), rp.finish_fail)
 
     # ── spørsmål fra arbeidstråden ──
@@ -1039,11 +1044,53 @@ class MainWindow(QMainWindow):
         event.accept()
 
 
+def selftest() -> int:
+    """Brukes av byggejobben: sjekker at den bygde appen har med seg alt den trenger.
+
+    Kjør:  "FortiGate Setup.exe" --selftest   (resultatet skrives til FGT_SELFTEST_OUT hvis satt)
+    """
+    import tempfile
+    out = os.environ.get("FGT_SELFTEST_OUT")
+    try:
+        from netmiko import ConnectHandler  # noqa: F401
+        os.environ.setdefault("FGT_SNMP_AUTH", "SelfTest123!")
+        os.environ.setdefault("FGT_SNMP_PRIV", "SelfTest456!")
+        data = Path(tempfile.mkdtemp(prefix="fgt-selftest-"))
+        os.environ["FGT_DATA_DIR"] = str(data)
+        C.ensure_data_dir(data)
+        defaults = C.load_defaults(data / "site_defaults.yaml")
+        dev = C.OfflineDevice(C.RESOURCE_DIR / "tests" / "fixtures" / "61F")
+        raw, info = C.read_box(dev, "192.168.1.99", C.Events())
+        form = {"hostname": "selftest-fw01", "lan_iface": "internal", "lan_ip": "10.20.30.1/24",
+                "dhcp_enabled": True, "dhcp_start": "10.20.30.50", "dhcp_end": "10.20.30.250",
+                "dns": "1.1.1.1, 8.8.8.8", "wan_mode": "single", "wan1_port": "wan1", "wan1_mode": "dhcp",
+                "wan1_alias": ""}
+        a, errs = C.validate_form(info, defaults, form)
+        if errs:
+            raise RuntimeError(f"skjemafeil: {errs}")
+        plan = C.make_plan(dev, info, raw, defaults, a, data / "output")
+        if not plan.steps:
+            raise RuntimeError("tom plan")
+        app = QApplication.instance() or QApplication(sys.argv)
+        app.setStyleSheet(STYLE)
+        MainWindow()
+        msg, code = f"OK: {len(plan.steps)} steg, maler fra {C.RESOURCE_DIR}", 0
+    except Exception:
+        msg, code = "FEIL:\n" + traceback.format_exc(), 1
+    if out:
+        Path(out).write_text(msg, encoding="utf-8")
+    elif sys.stdout:                      # None i bygd Windows-app (--windowed)
+        print(msg)
+    return code
+
+
 def main():
+    if "--selftest" in sys.argv:
+        sys.exit(selftest())
     app = QApplication(sys.argv)
     app.setApplicationName(C.APP_NAME)
     f = app.font()
-    f.setPointSize(max(f.pointSize(), 14))
+    f.setPointSize(max(f.pointSize(), 14 if IS_MAC else 10))
     app.setFont(f)
     app.setStyleSheet(STYLE)
     w = MainWindow()
