@@ -1,6 +1,6 @@
 @echo off
 rem Bygger "FortiGate Setup.exe" i dist\FortiGate Setup\. Kjøres på en Windows-PC: dobbeltklikk eller build_app.bat
-rem GitHub Actions bruker det samme scriptet (se .github\workflows\windows.yml).
+rem GitHub Actions bruker det samme scriptet (se .github\workflows\build.yml).
 setlocal
 cd /d "%~dp0"
 

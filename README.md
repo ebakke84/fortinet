@@ -1,10 +1,28 @@
 # FortiGate førstegangsoppsett (FortiOS 7.6)
 
 Interaktivt script for fabrikknullstilte FortiGate 40F, 60F, 50G, 70G og 120G.
-Kjøres fra Mac, kobler til `192.168.1.99`, og setter opp hostname, WAN (én eller SD-WAN),
+Kjøres fra Mac eller Windows, kobler til `192.168.1.99`, og setter opp hostname, WAN (én eller SD-WAN),
 LAN med DHCP, SNMPv3, trusted hosts, timezone og admin-timeout.
 
-## Enklest: dobbeltklikk
+## Last ned ferdig app (Mac og Windows)
+
+Gå til **[Releases](https://github.com/ebakke84/fortinet-setup-tool/releases/latest)** og last ned:
+
+- **Mac:** `FortiGate-Setup-mac.zip` → dobbeltklikk for å pakke ut → flytt *FortiGate Setup* til Programmer.
+  Første gang: høyreklikk → Åpne. Sier macOS at appen ikke kan åpnes:
+  *Systeminnstillinger → Personvern og sikkerhet* → **Åpne likevel**. Bygget for Apple Silicon (M1 og nyere).
+- **Windows:** `FortiGate-Setup-windows.zip` → pakk ut et fast sted → dobbeltklikk **FortiGate Setup.exe**.
+  Første gang: «Windows beskyttet PC-en» → *Mer info* → *Kjør likevel*.
+
+Appene bygges og selvtestes automatisk av GitHub Actions (*Bygg apper*). Ny versjon ut:
+
+```bash
+git tag v1.1 && git push origin v1.1     # lager en ny Release med begge appene
+```
+
+Mellom versjonene finnes siste bygg under **Actions** → *Bygg apper* → siste grønne kjøring → **Artifacts**.
+
+## Enklest fra kildekoden: dobbeltklikk
 
 1. Hent prosjektet med Git (se under) til en mappe utenfor iCloud, f.eks. `~/Projects/fortinet`.
 2. Dobbeltklikk **FortiGate Setup.command**. Første gang: høyreklikk → Åpne.
@@ -35,13 +53,10 @@ Portene velges fra lister med det boksen faktisk har, og feil markeres i rødt m
 
 ## Windows-appen
 
-Den samme appen finnes for Windows. Den bygges automatisk av GitHub Actions ved hver push.
+Den samme appen finnes for Windows (se *Last ned ferdig app* over).
 
-- **Laste ned:** GitHub → **Actions** → *Windows-app* → siste grønne kjøring → **Artifacts** →
-  *FortiGate-Setup-windows*. Pakk ut zip-fila et fast sted (f.eks. `C:\Verktøy\FortiGate Setup`)
-  og dobbeltklikk **FortiGate Setup.exe**. Lag gjerne en snarvei på skrivebordet.
-  En tag som `v1.0` (`git tag v1.0 && git push --tags`) lager en *Release* med zip-fila,
-  så slipper du å lete i Actions.
+- **Installere:** pakk ut zip-fila et fast sted (f.eks. `C:\Verktøy\FortiGate Setup`) og dobbeltklikk
+  **FortiGate Setup.exe**. Lag gjerne en snarvei på skrivebordet.
 - **Første gang:** Windows SmartScreen sier «Windows beskyttet PC-en» fordi appen ikke er signert.
   Trykk *Mer info* → *Kjør likevel*.
 - **Datamappe:** `%APPDATA%\FortiGate Setup` (innstillinger, `secrets.env` og `output/`).
@@ -143,7 +158,7 @@ Kjør det første gang mot en lab-boks og sjekk spesielt:
 | `fgt/core.py` | felles logikk for begge: lesing, validering, maler, utførelse |
 | `build_app.sh` | bygger `FortiGate Setup.app` med PyInstaller (Mac) |
 | `build_app.bat` | bygger `FortiGate Setup.exe` med PyInstaller (Windows) |
-| `.github/workflows/windows.yml` | GitHub Actions: tester og bygger Windows-appen |
+| `.github/workflows/build.yml` | GitHub Actions: tester og bygger Mac- og Windows-appen, og lager Release fra tagger |
 | `tests/test_core.py` | tester (`python3 -m pytest -q`) |
 | `site_defaults.example.yaml` | mal for faste innstillinger (kopieres til `site_defaults.yaml`) |
 | `secrets.env.example` | mal for SNMP-passord (kopieres til `secrets.env`) |
