@@ -220,15 +220,119 @@ def test_ensure_data_dir(tmp_path):
     assert C.ensure_data_dir(tmp_path / "data") == []
 
 
-def test_mac_link_status(monkeypatch):
+def test_link_status_mac(monkeypatch):
     monkeypatch.setattr(C.sys, "platform", "darwin")
-    monkeypatch.setattr(C, "mac_iface_for", lambda h: "en5")
-    monkeypatch.setattr(C, "mac_ip", lambda i: "192.168.1.110")
-    assert C.mac_link_status("192.168.1.99") == {"iface": "en5", "ip": "192.168.1.110", "ready": True}
-    monkeypatch.setattr(C, "mac_ip", lambda i: "10.0.0.5")
-    assert C.mac_link_status("192.168.1.99")["ready"] is False
+    monkeypatch.setattr(C, "local_iface_for", lambda h: "en5")
+    monkeypatch.setattr(C, "local_ip", lambda i: "192.168.1.110")
+    assert C.link_status("192.168.1.99") == {"iface": "en5", "ip": "192.168.1.110", "ready": True}
+    monkeypatch.setattr(C, "local_ip", lambda i: "10.0.0.5")
+    assert C.link_status("192.168.1.99")["ready"] is False
     monkeypatch.setattr(C.sys, "platform", "linux")
-    assert C.mac_link_status("192.168.1.99") is None
+    assert C.link_status("192.168.1.99") is None
+
+
+def test_link_status_windows_caches_iface(monkeypatch):
+    monkeypatch.setattr(C.sys, "platform", "win32")
+    C._IFACE_CACHE.clear()
+    calls = []
+    monkeypatch.setattr(C, "local_iface_for", lambda h: calls.append(h) or "Ethernet 2")
+    monkeypatch.setattr(C, "route_src_ip", lambda h: "192.168.1.110")
+    for _ in range(3):
+        assert C.link_status("192.168.1.99") == {"iface": "Ethernet 2", "ip": "192.168.1.110", "ready": True}
+    assert calls == ["192.168.1.99"]                     # PowerShell bare én gang
+    monkeypatch.setattr(C, "route_src_ip", lambda h: "10.0.0.5")
+    assert C.link_status("192.168.1.99")["ready"] is False
+    assert len(calls) == 2
+
+
+def test_windows_alias_and_cleanup_cmds(monkeypatch):
+    monkeypatch.setattr(C.sys, "platform", "win32")
+    add = C.alias_cmds("Ethernet 2", "10.10.10.253", "255.255.255.0")
+    assert add[-1] == ["netsh", "interface", "ipv4", "add", "address", "name=Ethernet 2",
+                       "address=10.10.10.253", "mask=255.255.255.0"]
+    clean = C.cleanup_cmds("Ethernet 2", "10.10.10.253", renew=True)
+    assert clean[-1] == [C.OPTIONAL, "ipconfig", "/renew", "Ethernet 2"]
+    assert not any("/renew" in c for c in C.cleanup_cmds("Ethernet 2", "10.10.10.253", renew=False))
+
+
+def test_uac_script_quotes_and_optional():
+    bat = C.uac_script([[C.OPTIONAL, "netsh", "set", "interface=Ethernet 2", "x=enabled"],
+                        ["netsh", "add", "address", "name=Ethernet 2", "address=10.0.0.1"],
+                        [C.OPTIONAL, "ipconfig", "/renew", "Ethernet 2"]], r"C:\T\a.log")
+    lines = bat.split("\r\n")
+    assert 'netsh set interface="Ethernet 2" x=enabled >> "C:\\T\\a.log" 2>&1' in lines
+    assert 'netsh add address name="Ethernet 2" address=10.0.0.1 >> "C:\\T\\a.log" 2>&1 || exit /b 1' in lines
+    assert 'ipconfig /renew "Ethernet 2" >> "C:\\T\\a.log" 2>&1' in lines
+    assert lines[-2] == "exit /b 0"
+
+
+def test_mac_runners_drop_optional_marker(monkeypatch):
+    ran = []
+    monkeypatch.setattr(C.subprocess, "run", lambda c, **k: ran.append(c))
+    C.SudoRunner().run([[C.OPTIONAL, "ipconfig", "set", "en5", "DHCP"]])
+    assert ran == [["sudo", "ipconfig", "set", "en5", "DHCP"]]
+
+
+def test_default_data_dir_frozen(monkeypatch, tmp_path):
+    monkeypatch.delenv("FGT_DATA_DIR", raising=False)
+    monkeypatch.setattr(C.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(C.sys, "platform", "win32")
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    assert C.default_data_dir() == tmp_path / C.APP_NAME
+    monkeypatch.setattr(C.sys, "platform", "darwin")
+    assert C.default_data_dir() == Path.home() / "Library" / "Application Support" / C.APP_NAME
+
+
+class RecAdmin(C.AdminRunner):
+    def __init__(self, fail=False):
+        self.cmds, self.fail = [], fail
+
+    def run(self, cmds):
+        if self.fail:
+            raise C.subprocess.CalledProcessError(1223, "admin", "", "avbrutt i Windows-dialogen")
+        self.cmds.append(cmds)
+
+
+def _same_iface_plan(defaults, tmp_path):
+    dev, raw, info = box("61F")
+    a, _ = C.validate_form(info, defaults, form())
+    plan = C.make_plan(dev, info, raw, defaults, a, tmp_path)
+    assert plan.ctx["lan"]["same_iface"]
+    return plan
+
+
+def test_execute_windows_alias(defaults, tmp_path, monkeypatch):
+    FakeDevice.state = {"ip": False, "dhcp": False, "pending": False}
+    monkeypatch.setattr(C, "LiveDevice", FakeDevice)
+    monkeypatch.setattr(C, "wait_port", lambda *a, **k: True)
+    plan = _same_iface_plan(defaults, tmp_path)
+    lan = plan.ctx["lan"]
+    monkeypatch.setattr(C.sys, "platform", "win32")
+    monkeypatch.setattr(C, "local_iface_for", lambda h: "Ethernet 2")
+    ips = iter(["192.168.1.110"] + [lan["alias_ip"].rsplit(".", 1)[0] + ".20"] * 50)
+    monkeypatch.setattr(C, "local_ip", lambda i: next(ips))
+    monkeypatch.setattr(C, "local_router", lambda i: lan["ip"])
+    admin, ev = RecAdmin(), RecEvents()
+    C.execute(FakeDevice(), plan, C.RunOptions(mac_alias=True), "pw", ev, admin)
+    add, clean = admin.cmds
+    assert add[-1][:5] == ["netsh", "interface", "ipv4", "add", "address"]
+    assert f"address={lan['alias_ip']}" in add[-1]
+    assert any(c[1:3] == ["ipconfig", "/release"] for c in clean)
+    assert any("PC-en har nå" in m for m in ev.msgs)
+
+
+def test_execute_alias_failure_falls_back_to_manual(defaults, tmp_path, monkeypatch):
+    FakeDevice.state = {"ip": False, "dhcp": False, "pending": False}
+    monkeypatch.setattr(C, "LiveDevice", FakeDevice)
+    monkeypatch.setattr(C, "wait_port", lambda *a, **k: True)
+    plan = _same_iface_plan(defaults, tmp_path)
+    monkeypatch.setattr(C.sys, "platform", "win32")
+    monkeypatch.setattr(C, "local_iface_for", lambda h: "Ethernet 2")
+    monkeypatch.setattr(C, "local_ip", lambda i: "192.168.1.110")
+    ev = RecEvents()
+    C.execute(FakeDevice(), plan, C.RunOptions(mac_alias=True), "pw", ev, RecAdmin(fail=True))
+    assert any("Klarte ikke legge til midlertidig IP" in m for m in ev.msgs)
+    assert any("som ekstra IP før du fortsetter" in m for m in ev.msgs)
 
 
 class _FakeT:

@@ -33,6 +33,27 @@ Portene velges fra lister med det boksen faktisk har, og feil markeres i rødt m
   eller `raw/`-mappa fra en tidligere kjøring.
 - Når Mac-en trenger midlertidig IP i nytt LAN, viser macOS sin vanlige passorddialog.
 
+## Windows-appen
+
+Den samme appen finnes for Windows. Den bygges automatisk av GitHub Actions ved hver push.
+
+- **Laste ned:** GitHub → **Actions** → *Windows-app* → siste grønne kjøring → **Artifacts** →
+  *FortiGate-Setup-windows*. Pakk ut zip-fila et fast sted (f.eks. `C:\Verktøy\FortiGate Setup`)
+  og dobbeltklikk **FortiGate Setup.exe**. Lag gjerne en snarvei på skrivebordet.
+  En tag som `v1.0` (`git tag v1.0 && git push --tags`) lager en *Release* med zip-fila,
+  så slipper du å lete i Actions.
+- **Første gang:** Windows SmartScreen sier «Windows beskyttet PC-en» fordi appen ikke er signert.
+  Trykk *Mer info* → *Kjør likevel*.
+- **Datamappe:** `%APPDATA%\FortiGate Setup` (innstillinger, `secrets.env` og `output/`).
+  *Fil → Velg datamappe* fungerer som på Mac. Innstillinger: **Ctrl+,**.
+- **Midlertidig IP i nytt LAN:** Windows viser sin vanlige dialog for administratortilgang to ganger,
+  når IP-en legges til og når den fjernes til slutt. Appen bruker `netsh`, og etterpå
+  `ipconfig /release` og `/renew`, så PC-en får ny adresse og gateway. Klarer den ikke å legge til
+  IP-en (for eksempel fordi du trykker Nei), ber den deg legge den inn manuelt og venter.
+- **Bygge selv på en Windows-PC:** installer Python 3 fra python.org (huk av for *Add python.exe to PATH*)
+  og dobbeltklikk `build_app.bat`. Appen havner i `dist\FortiGate Setup\`.
+- **Fra kildekoden:** `py -m pip install -r requirements.txt -r requirements-app.txt` og `py app.py`.
+
 ## Hente og oppdatere med Git
 
 ```bash
@@ -88,11 +109,12 @@ python3 setup.py --offline tests/fixtures/61F
    (`config.txt`, `run.log`, `raw/`). Passord er maskert.
 5. Etter at du skriver `ja`:
    - kjører system, SNMP, WAN/SD-WAN og policy linje for linje, og stopper på første feil
-   - legger midlertidig IP i nytt LAN på Mac-ens nettverkskort (spør om sudo-passord)
+   - legger midlertidig IP i nytt LAN på maskinens nettverkskort (Mac: spør om sudo-passord,
+     Windows: spør om administratortilgang)
    - sender LAN-IP + DHCP på én gang. SSH faller ut, det er forventet
    - kobler til på ny IP, verifiserer, kjører DHCP på nytt om den ikke kom med
    - setter endelige trusted hosts (fjerner 192.168.1.0/24)
-   - fjerner Mac-aliaset og tvinger ny DHCP-lease, så Mac-en får ny IP og gateway
+   - fjerner den midlertidige IP-en og tvinger ny DHCP-lease, så maskinen får ny IP og gateway
 
 ## Hvis noe går galt
 
@@ -110,15 +132,18 @@ Kjør det første gang mot en lab-boks og sjekk spesielt:
 - [ ] Porter kan flyttes ut av `virtual-switch` på din modell
 - [ ] DHCP-blokken etter IP-byttet (kommer den med, eller kjøres den på nytt?)
 - [ ] SNMPv3: polling og traps fungerer fra NMS
+- [ ] Windows: midlertidig IP (`netsh`) og ny DHCP-lease til slutt på en ekte PC
 
 ## Filer
 
 | Fil | Innhold |
 |---|---|
 | `setup.py` | Terminal-versjonen |
-| `app.py` | Mac-appen (PySide6) |
+| `app.py` | appen for Mac og Windows (PySide6) |
 | `fgt/core.py` | felles logikk for begge: lesing, validering, maler, utførelse |
-| `build_app.sh` | bygger `FortiGate Setup.app` med PyInstaller |
+| `build_app.sh` | bygger `FortiGate Setup.app` med PyInstaller (Mac) |
+| `build_app.bat` | bygger `FortiGate Setup.exe` med PyInstaller (Windows) |
+| `.github/workflows/windows.yml` | GitHub Actions: tester og bygger Windows-appen |
 | `tests/test_core.py` | tester (`python3 -m pytest -q`) |
 | `site_defaults.example.yaml` | mal for faste innstillinger (kopieres til `site_defaults.yaml`) |
 | `secrets.env.example` | mal for SNMP-passord (kopieres til `secrets.env`) |

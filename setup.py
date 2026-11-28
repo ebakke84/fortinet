@@ -6,7 +6,7 @@ FortiGate førstegangsoppsett for FortiOS 7.6 – Terminal-versjonen.
 Kobler til en fabrikknullstilt boks på 192.168.1.99, leser hva den har,
 spør interaktivt om hostname / WAN / LAN, henter SNMPv3, trusted hosts,
 timezone og admin-innstillinger fra site_defaults.yaml, og kjører konfigurasjonen.
-Logikken ligger i fgt/core.py og deles med Mac-appen (app.py).
+Logikken ligger i fgt/core.py og deles med appen (app.py).
 
 Bruk:
     python3 setup.py                                # live mot 192.168.1.99
@@ -28,7 +28,7 @@ except ImportError as e:  # pragma: no cover
     sys.exit(f"Mangler Python-pakke ({e.name}). Kjør: pip install -r requirements.txt")
 
 from fgt.core import (  # noqa: E402
-    LOG, SUPPORTED_MODELS, Abort, ApplyError, Events, OfflineDevice, RunOptions, SudoRunner,
+    LOG, SUPPORTED_MODELS, Abort, ApplyError, Events, OfflineDevice, RunOptions, admin_runner, this_pc,
     a_prefix, connect, default_data_dir, default_range, execute, gui_url, load_defaults,
     load_env_file, make_plan, open_url, port_label, preflight, read_box, v_alias, v_choice,
     v_dns, v_hostname, v_iface_ip, v_ip, wait_port, wan_candidates,
@@ -210,7 +210,7 @@ def interview(info: dict, d: dict) -> dict:
         port = ask(f"WAN{n} port", default, v_port)
         if port in info["vswitch_of"]:
             warn(f"{port} flyttes ut av switchen '{info['vswitch_of'][port]}'. "
-                f"Pass på at Mac-en IKKE står i denne porten.")
+                f"Pass på at {this_pc()} IKKE står i denne porten.")
         m = ask(f"WAN{n} adressering: 1) DHCP  2) statisk", "1", v_choice({"1": "dhcp", "2": "static"}))
         w = {"port": port, "mode": m,
              "alias": ask(f"WAN{n} navn, f.eks. Telenor (- for ingen)", "-", v_alias)}
@@ -336,7 +336,7 @@ def open_gui(ctx: dict) -> None:
     with Progress("Venter på at GUI-en svarer"):
         up = wait_port(ctx["lan"]["ip"], ctx["admin_https_port"], 60)
     if not up:
-        warn(f"Får ikke svar på {url}. Har Mac-en fått adresse i nytt LAN?")
+        warn(f"Får ikke svar på {url}. Har {this_pc()} fått adresse i nytt LAN?")
         return
     open_url(url)
     info_line("Nettleseren advarer om sertifikatet første gang. Det er normalt "
@@ -353,7 +353,7 @@ def main() -> None:
     ap.add_argument("--defaults", default=str(data_dir / "site_defaults.yaml"))
     ap.add_argument("--dry-run", action="store_true", help="les boksen og vis config, men ikke endre noe")
     ap.add_argument("--offline", metavar="MAPPE", help="bruk lagret output i stedet for en boks (impliserer --dry-run)")
-    ap.add_argument("--no-mac-alias", action="store_true", help="ikke legg midlertidig IP på Mac-en automatisk")
+    ap.add_argument("--no-mac-alias", action="store_true", help="ikke legg midlertidig IP på maskinen automatisk")
     ap.add_argument("--quiet", action="store_true", help="ikke skriv generert config til skjermen")
     args = ap.parse_args()
 
@@ -422,7 +422,7 @@ def main() -> None:
         header("Konfigurerer")
         opts = RunOptions(host=args.host, user=args.user, mac_alias=not args.no_mac_alias)
         try:
-            status = execute(dev, plan, opts, pw, ev, SudoRunner())
+            status = execute(dev, plan, opts, pw, ev, admin_runner(gui=False))
         except Exception as e:
             say()
             fail(str(e))
