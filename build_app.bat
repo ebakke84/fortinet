@@ -6,10 +6,13 @@ cd /d "%~dp0"
 
 if not exist ".venv\Scripts\python.exe" (
     echo - Lager Python-miljo i .venv ...
-    py -3 -m venv .venv 2>nul || python -m venv .venv
-    if errorlevel 1 goto :nopython
+    rem "python" forst: det er den GitHub Actions setter opp. "py -3" kan velge en for ny versjon.
+    python -c "import sys" >nul 2>&1 && python -m venv .venv
+    if not exist ".venv\Scripts\python.exe" py -3 -m venv .venv
+    if not exist ".venv\Scripts\python.exe" goto :nopython
 )
 set "PY=.venv\Scripts\python.exe"
+"%PY%" --version
 
 echo - Installerer pakker, forste gang tar det et par minutter ...
 "%PY%" -m pip install -q --upgrade pip || goto :fail
